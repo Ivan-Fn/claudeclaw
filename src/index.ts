@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { PID_FILE } from './config.js';
+import { PID_FILE, ALLOWED_CHAT_IDS } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
 import { createBot, formatForTelegram, escapeHtml } from './bot.js';
@@ -151,8 +151,18 @@ async function main(): Promise<void> {
   // 7. Start bot (blocks until stopped)
   try {
     await bot.start({
-      onStart: (botInfo) => {
+      onStart: async (botInfo) => {
         logger.info({ username: botInfo.username }, 'Bot started');
+
+        // Notify owner that bot is back online
+        const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        for (const chatId of ALLOWED_CHAT_IDS) {
+          try {
+            await bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
+          } catch {
+            // Best effort
+          }
+        }
       },
     });
   } catch (err) {
