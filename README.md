@@ -2,6 +2,8 @@
 
 A Telegram bot that bridges Claude Code to your phone. Send messages, voice notes, photos, and files to your personal AI assistant via Telegram -- powered by Claude Code running on your own machine.
 
+> Inspired by [ClaudeClaw by earlyaidopters](https://github.com/earlyaidopters/claudeclaw). This project was rebuilt from scratch with a different architecture and additional features. The original concept and project name come from their work.
+
 ## What it does
 
 - **Telegram as your interface** -- chat with Claude Code from anywhere via your phone
@@ -12,6 +14,32 @@ A Telegram bot that bridges Claude Code to your phone. Send messages, voice note
 - **Cross-session memory** -- context persists across conversations via SQLite
 - **Session management** -- `/newchat`, `/respin`, `/cancel`, `/cost` commands
 - **Bot menu commands** -- all commands registered as Telegram suggestions
+
+## What's different from the original
+
+This project shares the core idea with [earlyaidopters/claudeclaw](https://github.com/earlyaidopters/claudeclaw) -- a Telegram bot that spawns Claude Code on your machine. The codebase was rebuilt from scratch with these additions:
+
+| Feature | This project | Original |
+|---------|:---:|:---:|
+| n8n webhook integrations (Gmail, Calendar, Notion) | Yes | -- |
+| Telegram bot menu (commands as suggestions) | Yes | -- |
+| API cost tracking (`/cost` with daily/weekly/monthly) | Yes | -- |
+| Memory with salience decay (semantic + episodic) | Yes | Basic SQLite |
+| Full-text search on memories (FTS5) | Yes | -- |
+| Per-chat message queue with rate limiting | Yes | -- |
+| Context window monitoring (warns at 75%) | Yes | -- |
+| Token usage tracking per turn | Yes | -- |
+| Comprehensive test suite (127 tests) | Yes | -- |
+| SSRF prevention on webhook paths | Yes | -- |
+| PID lock (prevents duplicate instances) | Yes | -- |
+| Interactive setup wizard (`npm run setup`) | Yes | -- |
+| CLI notification script | Yes | -- |
+| WhatsApp integration | -- | Yes |
+| Slack integration | -- | Yes |
+| Gemini video analysis | -- | Yes |
+| Multiple STT/TTS providers | -- | Yes |
+
+Both projects support: Telegram messaging, voice (STT/TTS), photo/document handling, session persistence, scheduled tasks, and conversation memory.
 
 ## Requirements
 
@@ -112,7 +140,7 @@ npm run typecheck # TypeScript type checking
 
 ## Attribution
 
-This project was inspired by and originally built on top of [ClaudeClaw by earlyaidopters](https://github.com/earlyaidopters/claudeclaw). The codebase has since been rebuilt from scratch, but the original concept and project name come from their work.
+This project was inspired by [ClaudeClaw by earlyaidopters](https://github.com/earlyaidopters/claudeclaw). The original concept, project name, and initial prompt design come from their work. The codebase has been rebuilt from scratch with a different architecture and additional features listed above.
 
 ## License
 
