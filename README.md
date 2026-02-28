@@ -34,6 +34,7 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 | PID lock (prevents duplicate instances) | Yes | -- |
 | Interactive setup wizard (`npm run setup`) | Yes | -- |
 | CLI notification script | Yes | -- |
+| Self-management (`/restart`, `/rebuild` without LLM) | Yes | -- |
 | WhatsApp integration | -- | Yes |
 | Slack integration | -- | Yes |
 | Gemini video analysis | -- | Yes |

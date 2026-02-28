@@ -368,9 +368,9 @@ export function createBot(): Bot {
 
     try {
       const { execSync } = await import('node:child_process');
-      const output = execSync('git pull && npm install', {
+      const output = execSync('git pull && npm install && npm run build', {
         cwd: PROJECT_ROOT,
-        timeout: 60_000,
+        timeout: 120_000,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
