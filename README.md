@@ -35,6 +35,7 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 | Interactive setup wizard (`npm run setup`) | Yes | -- |
 | CLI notification script | Yes | -- |
 | Self-management (`/restart`, `/rebuild` without LLM) | Yes | -- |
+| Image generation via Gemini API (`/imagine`) | Yes | -- |
 | WhatsApp integration | -- | Yes |
 | Slack integration | -- | Yes |
 | Gemini video analysis | -- | Yes |
@@ -82,6 +83,7 @@ npm run dev
 | `/cal` | Calendar events (requires n8n) |
 | `/todo` | Task list (requires n8n) |
 | `/n8n <path>` | Call any n8n webhook |
+| `/imagine` | Generate an image (requires Gemini API) |
 | `/schedule` | Schedule a cron task |
 | `/tasks` | List scheduled tasks |
 | `/deltask` | Delete a scheduled task |
@@ -108,6 +110,7 @@ src/
   logger.ts       # Pino structured logging
   integrations/
     n8n.ts        # n8n webhook client
+    gemini.ts     # Gemini image generation
 scripts/
   setup.ts        # Interactive setup wizard
   status.ts       # Health check script

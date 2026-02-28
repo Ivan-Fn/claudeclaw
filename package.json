@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
+    "@google/genai": "^1.43.0",
     "better-sqlite3": "^12.6.2",
     "cron-parser": "^5.5.0",
     "grammy": "^1.40.1",
