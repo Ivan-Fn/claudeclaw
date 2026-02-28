@@ -86,6 +86,8 @@ npm run dev
 | `/deltask` | Delete a scheduled task |
 | `/pausetask` | Pause a scheduled task |
 | `/resumetask` | Resume a scheduled task |
+| `/restart` | Restart the bot process (no LLM) |
+| `/rebuild` | Git pull + npm install + restart (no LLM) |
 
 ## Architecture
 
