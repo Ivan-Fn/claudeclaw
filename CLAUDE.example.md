@@ -71,6 +71,15 @@ Common cron patterns:
 - Every weekday at 8am: `0 8 * * 1-5`
 - Every 4 hours: `0 */4 * * *`
 
+## Process Management
+
+The bot has built-in commands for self-management that don't involve any LLM calls:
+
+- `/restart` -- restarts the bot process. If managed by launchd/systemd, it comes back up automatically.
+- `/rebuild` -- runs `git pull && npm install` then restarts. Use after pushing code changes.
+
+When [YOUR_NAME] makes code changes and asks to test them, suggest `/rebuild` to pull and restart. For a fresh start, suggest `/restart`.
+
 ## Message Format
 
 - Messages come via Telegram -- keep responses tight and readable
