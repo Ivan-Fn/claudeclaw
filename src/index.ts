@@ -102,6 +102,8 @@ async function main(): Promise<void> {
       { command: 'deltask', description: 'Delete a scheduled task' },
       { command: 'pausetask', description: 'Pause a scheduled task' },
       { command: 'resumetask', description: 'Resume a scheduled task' },
+      { command: 'restart', description: 'Restart the bot process' },
+      { command: 'rebuild', description: 'Git pull + npm install + restart' },
     ]);
     logger.info('Bot commands registered with Telegram');
   } catch (err) {

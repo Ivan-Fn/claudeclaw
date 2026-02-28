@@ -4,6 +4,7 @@ import {
   ALLOWED_CHAT_IDS,
   MAX_MESSAGE_LENGTH,
   TYPING_REFRESH_MS,
+  PROJECT_ROOT,
 } from './config.js';
 import { logger } from './logger.js';
 import { runAgent, type UsageInfo } from './agent.js';
@@ -351,6 +352,36 @@ export function createBot(): Bot {
 
   bot.command('resumetask', async (ctx) => {
     await ctx.reply(resumeScheduledTask(ctx.match || ''));
+  });
+
+  // ── Process Management (no LLM involved) ────────────────────────
+
+  bot.command('restart', async (ctx) => {
+    logger.info({ chatId: ctx.chat.id.toString() }, 'Restart requested via Telegram');
+    await ctx.reply('Restarting bot...');
+    setTimeout(() => process.exit(0), 500);
+  });
+
+  bot.command('rebuild', async (ctx) => {
+    logger.info({ chatId: ctx.chat.id.toString() }, 'Rebuild requested via Telegram');
+    await ctx.reply('Pulling latest code and restarting...');
+
+    try {
+      const { execSync } = await import('node:child_process');
+      const output = execSync('git pull && npm install', {
+        cwd: PROJECT_ROOT,
+        timeout: 60_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const summary = output.trim().split('\n').slice(-5).join('\n');
+      await ctx.reply(`Build done:\n${summary}\n\nRestarting...`);
+      setTimeout(() => process.exit(0), 500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error({ err: msg }, 'Rebuild failed');
+      await ctx.reply(`Rebuild failed: ${msg.slice(0, 300)}`);
+    }
   });
 
   // ── Voice Handler ─────────────────────────────────────────────────
