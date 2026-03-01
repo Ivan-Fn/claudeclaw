@@ -92,6 +92,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     if (env['ANTHROPIC_API_KEY']) {
       sdkEnv['ANTHROPIC_API_KEY'] = env['ANTHROPIC_API_KEY'];
     }
+    // Pass Gemini API key as GOOGLE_API_KEY for the google-genai SDK
+    if (env['GEMINI_API_KEY']) {
+      sdkEnv['GOOGLE_API_KEY'] = env['GEMINI_API_KEY'];
+    }
     if (extraEnv) {
       Object.assign(sdkEnv, extraEnv);
     }

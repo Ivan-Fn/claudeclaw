@@ -115,7 +115,6 @@ scripts/
   setup.ts        # Interactive setup wizard
   status.ts       # Health check script
   notify.sh       # Send Telegram messages from CLI
-  imagine.sh      # Generate and send images via Gemini API
   export-context.sh  # Export conversation context to markdown
 ```
 

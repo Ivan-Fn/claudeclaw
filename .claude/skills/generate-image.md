@@ -1,6 +1,11 @@
+---
+name: generate-image
+description: This skill should be used when the user asks to "generate an image", "draw something", "create a picture", "visualize", "create an illustration", "show me what X looks like", or any request that requires producing a visual.
+---
+
 ## Generate Image
 
-You can generate images using the Gemini API and send them directly to the current Telegram chat.
+Generate images using the Gemini API and send them directly to the current Telegram chat.
 
 ### When to Use
 
@@ -10,30 +15,58 @@ You can generate images using the Gemini API and send them directly to the curre
 
 Do NOT generate images unless the user clearly wants a visual. Text descriptions are fine for most requests.
 
-### How to Use
+### How to Generate
 
-Run the imagine script from the project root:
+Use the Gemini API with `gemini-3.1-flash-image-preview` model for image generation. The `GOOGLE_API_KEY` environment variable is set automatically.
 
-```bash
-./scripts/imagine.sh "detailed prompt describing the image"
+Write a Python script inline to generate the image and send it to Telegram:
+
+```python
+python3 -c "
+from google import genai
+from google.genai import types
+import urllib.request, json, os, base64, tempfile
+
+client = genai.Client()
+response = client.models.generate_content(
+    model='gemini-3.1-flash-image-preview',
+    contents='YOUR PROMPT HERE',
+    config=types.GenerateContentConfig(response_modalities=['TEXT', 'IMAGE'])
+)
+
+# Extract image
+for part in response.candidates[0].content.parts:
+    if part.inline_data:
+        img = base64.b64decode(part.inline_data.data)
+        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        tmp.write(img)
+        tmp.close()
+
+        # Send to Telegram
+        chat_id = os.environ['TELEGRAM_CHAT_ID']
+        token = [line.split('=',1)[1] for line in open('.env') if line.startswith('TELEGRAM_BOT_TOKEN=')][0].strip()
+        url = f'https://api.telegram.org/bot{token}/sendPhoto'
+
+        import subprocess
+        subprocess.run(['curl', '-s', '-X', 'POST', url, '-F', f'chat_id={chat_id}', '-F', f'photo=@{tmp.name}'], check=True)
+        os.unlink(tmp.name)
+        print('Image sent')
+        break
+"
 ```
 
-The script will:
-1. Call the Gemini API to generate the image
-2. Send it directly to the user's Telegram chat
-3. Print a confirmation message
-
-The `TELEGRAM_CHAT_ID` environment variable is set automatically -- the script knows which chat to send to.
+The `TELEGRAM_CHAT_ID` environment variable is set automatically for every agent session.
 
 ### Tips
 
 - Write detailed, descriptive prompts for better results (style, colors, composition, mood)
 - If the user gives a short request like "draw a cat", expand it into a richer prompt
-- If the script fails with a safety filter error, let the user know and suggest rephrasing
-- If it fails with a rate limit error, wait a moment and try again
+- If generation fails with a safety filter error, tell the user and suggest rephrasing
+- If it fails with a rate limit, wait a moment and try again
 - Keep prompts under 2000 characters
 
 ### Requirements
 
-- `GEMINI_API_KEY` must be set in `.env`
+- `GOOGLE_API_KEY` must be set (mapped from `GEMINI_API_KEY` in `.env`)
+- `google-genai` Python package must be installed (`pip install google-genai`)
 - Gemini billing must be enabled (free tier may block image generation)
