@@ -25,7 +25,7 @@ Write a Python script inline to generate the image and send it to Telegram:
 python3 -c "
 from google import genai
 from google.genai import types
-import urllib.request, json, os, base64, tempfile
+import tempfile, subprocess, os
 
 client = genai.Client()
 response = client.models.generate_content(
@@ -34,10 +34,10 @@ response = client.models.generate_content(
     config=types.GenerateContentConfig(response_modalities=['TEXT', 'IMAGE'])
 )
 
-# Extract image
 for part in response.candidates[0].content.parts:
-    if part.inline_data:
-        img = base64.b64decode(part.inline_data.data)
+    if part.inline_data and part.inline_data.data:
+        # SDK returns raw bytes, NOT base64
+        img = part.inline_data.data
         tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
         tmp.write(img)
         tmp.close()
@@ -45,10 +45,10 @@ for part in response.candidates[0].content.parts:
         # Send to Telegram
         chat_id = os.environ['TELEGRAM_CHAT_ID']
         token = [line.split('=',1)[1] for line in open('.env') if line.startswith('TELEGRAM_BOT_TOKEN=')][0].strip()
-        url = f'https://api.telegram.org/bot{token}/sendPhoto'
-
-        import subprocess
-        subprocess.run(['curl', '-s', '-X', 'POST', url, '-F', f'chat_id={chat_id}', '-F', f'photo=@{tmp.name}'], check=True)
+        subprocess.run(['curl', '-s', '-X', 'POST',
+            f'https://api.telegram.org/bot{token}/sendPhoto',
+            '-F', f'chat_id={chat_id}',
+            '-F', f'photo=@{tmp.name}'], check=True)
         os.unlink(tmp.name)
         print('Image sent')
         break
@@ -56,6 +56,10 @@ for part in response.candidates[0].content.parts:
 ```
 
 The `TELEGRAM_CHAT_ID` environment variable is set automatically for every agent session.
+
+### Important
+
+- The `google-genai` SDK returns `part.inline_data.data` as raw `bytes`, NOT base64. Do NOT call `base64.b64decode` on it.
 
 ### Tips
 

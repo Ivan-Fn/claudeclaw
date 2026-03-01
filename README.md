@@ -48,6 +48,7 @@ Both projects support: Telegram messaging, voice (STT/TTS), photo/document handl
 - Node.js 24+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
+- Python 3.11+ with `google-genai` package (for image generation skill, optional)
 
 ## Quick Start
 
@@ -116,6 +117,9 @@ scripts/
   status.ts       # Health check script
   notify.sh       # Send Telegram messages from CLI
   export-context.sh  # Export conversation context to markdown
+.claude/skills/
+  generate-image.md     # Image generation skill (Gemini)
+  gemini-api-dev/       # Gemini API reference skill
 ```
 
 ## Personalizing
