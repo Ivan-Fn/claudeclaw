@@ -32,6 +32,7 @@ export const MAX_MESSAGE_LENGTH = 4096;
 export const TYPING_REFRESH_MS = 4_000;
 export const AGENT_TIMEOUT_MS = Number(env['AGENT_TIMEOUT_MS']) || 5 * 60 * 1000;
 export const MAX_TURNS = 50;
+export const MAX_TIMEOUT_RETRIES = Number(env['MAX_TIMEOUT_RETRIES']) || 3;
 export const MAX_MESSAGES_PER_MINUTE = 10;
 
 // Memory

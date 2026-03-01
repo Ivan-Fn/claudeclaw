@@ -4,6 +4,7 @@ import {
   ALLOWED_CHAT_IDS,
   MAX_MESSAGE_LENGTH,
   TYPING_REFRESH_MS,
+  MAX_TIMEOUT_RETRIES,
   PROJECT_ROOT,
 } from './config.js';
 import { logger } from './logger.js';
@@ -515,15 +516,29 @@ async function processMessage(
   activeAborts.set(chatId, abortController);
 
   try {
-    // 5. Run agent
-    const agentOpts: Parameters<typeof runAgent>[0] = {
-      message: fullMessage,
-      onTyping: () => {},
-      abortSignal: abortController.signal,
-      env: { TELEGRAM_CHAT_ID: chatId },
-    };
-    if (sessionId !== undefined) agentOpts.sessionId = sessionId;
-    const result = await runAgent(agentOpts);
+    // 5. Run agent (with auto-continue on timeout)
+    let currentMessage = fullMessage;
+    let currentSessionId = sessionId;
+    let result = await runAgentWithAbort(currentMessage, currentSessionId, chatId, abortController);
+
+    // Auto-continue: if the agent timed out mid-work, resume automatically
+    for (let retry = 0; retry < MAX_TIMEOUT_RETRIES && result.error === 'timeout'; retry++) {
+      // Preserve the session so we resume where we left off
+      if (result.sessionId) {
+        setSession(chatId, result.sessionId);
+        currentSessionId = result.sessionId;
+      }
+
+      logger.info({ chatId, retry: retry + 1, sessionId: currentSessionId }, 'Auto-continuing after timeout');
+      await ctx.reply(`Still working... (auto-continue ${retry + 1}/${MAX_TIMEOUT_RETRIES})`);
+
+      // Create a fresh abort controller for the retry
+      const retryAbort = new AbortController();
+      activeAborts.set(chatId, retryAbort);
+
+      currentMessage = 'Continue where you left off. Complete the task you were working on.';
+      result = await runAgentWithAbort(currentMessage, currentSessionId, chatId, retryAbort);
+    }
 
     // 6. Save session
     if (result.sessionId) {
@@ -588,6 +603,24 @@ async function processMessage(
     clearInterval(typingInterval);
     activeAborts.delete(chatId);
   }
+}
+
+// ── Agent Runner ────────────────────────────────────────────────────────
+
+async function runAgentWithAbort(
+  message: string,
+  sessionId: string | undefined,
+  chatId: string,
+  abortController: AbortController,
+) {
+  const agentOpts: Parameters<typeof runAgent>[0] = {
+    message,
+    onTyping: () => {},
+    abortSignal: abortController.signal,
+    env: { TELEGRAM_CHAT_ID: chatId },
+  };
+  if (sessionId !== undefined) agentOpts.sessionId = sessionId;
+  return runAgent(agentOpts);
 }
 
 // ── Typing Indicator ───────────────────────────────────────────────────
