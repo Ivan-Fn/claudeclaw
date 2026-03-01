@@ -25,6 +25,39 @@ import {
   resumeTask,
 } from './db.js';
 
+// ── CRM helpers (raw SQL, no exported functions) ─────────────────────────
+
+function insertContact(
+  db: ReturnType<typeof getDb>,
+  chatId: string,
+  name: string,
+  opts: { email?: string; phone?: string; company?: string; role?: string; notes?: string; source?: string } = {},
+): number {
+  const info = db
+    .prepare(
+      `INSERT INTO contacts (chat_id, name, email, phone, company, role, notes, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(chatId, name, opts.email ?? null, opts.phone ?? null, opts.company ?? null, opts.role ?? null, opts.notes ?? null, opts.source ?? 'manual');
+  return Number(info.lastInsertRowid);
+}
+
+function insertInteraction(
+  db: ReturnType<typeof getDb>,
+  chatId: string,
+  contactId: number,
+  type: string,
+  opts: { source?: string; summary?: string } = {},
+): number {
+  const info = db
+    .prepare(
+      `INSERT INTO interactions (chat_id, contact_id, type, source, summary)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(chatId, contactId, type, opts.source ?? 'manual', opts.summary ?? null);
+  return Number(info.lastInsertRowid);
+}
+
 const TMP = join(tmpdir(), 'master-agent-test-db');
 
 beforeEach(() => {
@@ -327,5 +360,340 @@ describe('scheduled tasks', () => {
     expect(resumeTask('t1', futureTs)).toBe(true);
     expect(getTask('t1')!.status).toBe('active');
     expect(getTask('t1')!.next_run).toBe(futureTs);
+  });
+});
+
+// ── CRM: Contacts ────────────────────────────────────────────────────────
+
+describe('contacts', () => {
+  it('inserts and retrieves a contact', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'Alice Smith', {
+      email: 'alice@acme.com',
+      company: 'Acme Corp',
+      role: 'CTO',
+    });
+
+    const row = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id) as Record<string, unknown>;
+    expect(row.name).toBe('Alice Smith');
+    expect(row.email).toBe('alice@acme.com');
+    expect(row.company).toBe('Acme Corp');
+    expect(row.role).toBe('CTO');
+    expect(row.chat_id).toBe('chat1');
+    expect(row.source).toBe('manual');
+    expect(row.interaction_count).toBe(0);
+  });
+
+  it('updates a contact', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'Bob', { email: 'bob@test.com' });
+
+    db.prepare('UPDATE contacts SET company = ?, updated_at = unixepoch() WHERE id = ?')
+      .run('NewCorp', id);
+
+    const row = db.prepare('SELECT company FROM contacts WHERE id = ?').get(id) as { company: string };
+    expect(row.company).toBe('NewCorp');
+  });
+
+  it('deletes a contact', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'Charlie', { email: 'charlie@test.com' });
+
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+    const row = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    expect(row).toBeUndefined();
+  });
+
+  it('enforces unique (chat_id, email) constraint', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice@acme.com' });
+
+    // Same email, same chat - should fail
+    expect(() =>
+      insertContact(db, 'chat1', 'Alice Duplicate', { email: 'alice@acme.com' }),
+    ).toThrow();
+  });
+
+  it('allows same email in different chats', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice@acme.com' });
+    // Same email, different chat - should succeed
+    expect(() =>
+      insertContact(db, 'chat2', 'Alice', { email: 'alice@acme.com' }),
+    ).not.toThrow();
+  });
+
+  it('enforces unique (chat_id, LOWER(name)) for contacts without email', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'David');
+
+    // Same name, no email, same chat - should fail
+    expect(() => insertContact(db, 'chat1', 'David')).toThrow();
+    // Case-insensitive
+    expect(() => insertContact(db, 'chat1', 'david')).toThrow();
+  });
+
+  it('allows duplicate names when emails differ', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice1@test.com' });
+    // Same name, different email - should succeed (email constraint takes priority)
+    expect(() =>
+      insertContact(db, 'chat1', 'Alice', { email: 'alice2@test.com' }),
+    ).not.toThrow();
+  });
+
+  it('handles ON CONFLICT upsert for email contacts', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice@acme.com', company: 'OldCorp' });
+
+    // Upsert via ON CONFLICT
+    db.prepare(`
+      INSERT INTO contacts (chat_id, name, email, company, role, notes, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(chat_id, email) DO UPDATE SET
+        name = excluded.name,
+        company = COALESCE(excluded.company, company),
+        role = COALESCE(excluded.role, role),
+        notes = COALESCE(excluded.notes, notes),
+        updated_at = unixepoch()
+    `).run('chat1', 'Alice Updated', 'alice@acme.com', 'NewCorp', 'CEO', null, 'manual');
+
+    const row = db.prepare('SELECT name, company, role FROM contacts WHERE email = ? AND chat_id = ?')
+      .get('alice@acme.com', 'chat1') as { name: string; company: string; role: string };
+    expect(row.name).toBe('Alice Updated');
+    expect(row.company).toBe('NewCorp');
+    expect(row.role).toBe('CEO');
+
+    // Should still be just one contact
+    const count = db.prepare('SELECT COUNT(*) as cnt FROM contacts WHERE chat_id = ?')
+      .get('chat1') as { cnt: number };
+    expect(count.cnt).toBe(1);
+  });
+
+  it('stores and retrieves photo_path', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'Eve', { email: 'eve@test.com' });
+
+    // Initially null
+    let row = db.prepare('SELECT photo_path FROM contacts WHERE id = ?').get(id) as { photo_path: string | null };
+    expect(row.photo_path).toBeNull();
+
+    // Update photo
+    db.prepare('UPDATE contacts SET photo_path = ?, updated_at = unixepoch() WHERE id = ?')
+      .run('store/crm/photos/contact-1-12345.jpg', id);
+
+    row = db.prepare('SELECT photo_path FROM contacts WHERE id = ?').get(id) as { photo_path: string | null };
+    expect(row.photo_path).toBe('store/crm/photos/contact-1-12345.jpg');
+  });
+
+  it('handles apostrophes in names', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', "Tim O'Brien", { company: "O'Reilly" });
+
+    const row = db.prepare('SELECT name, company FROM contacts WHERE id = ?').get(id) as { name: string; company: string };
+    expect(row.name).toBe("Tim O'Brien");
+    expect(row.company).toBe("O'Reilly");
+  });
+});
+
+// ── CRM: Contacts FTS5 ──────────────────────────────────────────────────
+
+describe('contacts FTS5', () => {
+  it('searches by name', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice Wonderland', { email: 'alice@test.com' });
+    insertContact(db, 'chat1', 'Bob Builder', { email: 'bob@test.com' });
+
+    const results = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'Alice*' AND c.chat_id = ?
+         ORDER BY rank LIMIT 10`,
+      )
+      .all('chat1') as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Alice Wonderland');
+  });
+
+  it('searches by company', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice@test.com', company: 'Anthropic' });
+    insertContact(db, 'chat1', 'Bob', { email: 'bob@test.com', company: 'Google' });
+
+    const results = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'Anthropic*' AND c.chat_id = ?
+         ORDER BY rank LIMIT 10`,
+      )
+      .all('chat1') as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Alice');
+  });
+
+  it('searches by role', () => {
+    const db = getDb();
+    insertContact(db, 'chat1', 'Alice', { email: 'alice@test.com', role: 'Engineering Manager' });
+    insertContact(db, 'chat1', 'Bob', { email: 'bob@test.com', role: 'Designer' });
+
+    const results = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'Engineer*' AND c.chat_id = ?
+         ORDER BY rank LIMIT 10`,
+      )
+      .all('chat1') as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Alice');
+  });
+
+  it('syncs FTS after delete', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'DeleteMe UniqueXyz', { email: 'del@test.com' });
+
+    let results = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'UniqueXyz*' AND c.chat_id = ?`,
+      )
+      .all('chat1');
+    expect(results).toHaveLength(1);
+
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+
+    results = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'UniqueXyz*' AND c.chat_id = ?`,
+      )
+      .all('chat1');
+    expect(results).toHaveLength(0);
+  });
+
+  it('syncs FTS after update', () => {
+    const db = getDb();
+    const id = insertContact(db, 'chat1', 'OriginalNameXyz', { email: 'orig@test.com' });
+
+    db.prepare('UPDATE contacts SET name = ? WHERE id = ?').run('UpdatedNameAbc', id);
+
+    const oldResults = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'OriginalNameXyz*' AND c.chat_id = ?`,
+      )
+      .all('chat1');
+    expect(oldResults).toHaveLength(0);
+
+    const newResults = db
+      .prepare(
+        `SELECT c.* FROM contacts c
+         JOIN contacts_fts f ON c.id = f.rowid
+         WHERE f.contacts_fts MATCH 'UpdatedNameAbc*' AND c.chat_id = ?`,
+      )
+      .all('chat1');
+    expect(newResults).toHaveLength(1);
+  });
+});
+
+// ── CRM: Interactions ────────────────────────────────────────────────────
+
+describe('interactions', () => {
+  it('logs an interaction', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Alice', { email: 'alice@test.com' });
+    const id = insertInteraction(db, 'chat1', contactId, 'meeting', {
+      summary: 'Discussed roadmap',
+    });
+
+    const row = db.prepare('SELECT * FROM interactions WHERE id = ?').get(id) as Record<string, unknown>;
+    expect(row.type).toBe('meeting');
+    expect(row.source).toBe('manual');
+    expect(row.summary).toBe('Discussed roadmap');
+    expect(row.contact_id).toBe(contactId);
+  });
+
+  it('supports auto source', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Bob', { email: 'bob@test.com' });
+    const id = insertInteraction(db, 'chat1', contactId, 'email', {
+      source: 'auto',
+      summary: 'Auto-discovered email',
+    });
+
+    const row = db.prepare('SELECT source FROM interactions WHERE id = ?').get(id) as { source: string };
+    expect(row.source).toBe('auto');
+  });
+
+  it('rejects invalid interaction type', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Eve', { email: 'eve@test.com' });
+
+    expect(() =>
+      insertInteraction(db, 'chat1', contactId, 'invalid_type'),
+    ).toThrow();
+  });
+
+  it('rejects invalid source', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Eve', { email: 'eve@test.com' });
+
+    expect(() =>
+      insertInteraction(db, 'chat1', contactId, 'meeting', { source: 'unknown' }),
+    ).toThrow();
+  });
+
+  it('cascade deletes interactions when contact is deleted', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Alice', { email: 'alice@test.com' });
+    insertInteraction(db, 'chat1', contactId, 'meeting', { summary: 'First meeting' });
+    insertInteraction(db, 'chat1', contactId, 'email', { summary: 'Follow-up email' });
+
+    // Verify interactions exist
+    let interactions = db
+      .prepare('SELECT * FROM interactions WHERE contact_id = ?')
+      .all(contactId);
+    expect(interactions).toHaveLength(2);
+
+    // Delete the contact
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(contactId);
+
+    // Interactions should be cascade-deleted
+    interactions = db
+      .prepare('SELECT * FROM interactions WHERE contact_id = ?')
+      .all(contactId);
+    expect(interactions).toHaveLength(0);
+  });
+
+  it('retrieves interaction history in order', () => {
+    const db = getDb();
+    const contactId = insertContact(db, 'chat1', 'Alice', { email: 'alice@test.com' });
+
+    // Insert with specific dates
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO interactions (chat_id, contact_id, type, source, summary, date)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('chat1', contactId, 'meeting', 'manual', 'Old meeting', now - 86400);
+
+    db.prepare(
+      `INSERT INTO interactions (chat_id, contact_id, type, source, summary, date)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('chat1', contactId, 'email', 'auto', 'Recent email', now);
+
+    const history = db
+      .prepare(
+        `SELECT type, summary FROM interactions
+         WHERE contact_id = ? ORDER BY date DESC LIMIT 10`,
+      )
+      .all(contactId) as Array<{ type: string; summary: string }>;
+    expect(history).toHaveLength(2);
+    expect(history[0]!.summary).toBe('Recent email');
+    expect(history[1]!.summary).toBe('Old meeting');
   });
 });

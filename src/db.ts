@@ -156,6 +156,70 @@ function createSchema(db: Database.Database): void {
       ON token_usage(session_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_token_usage_chat
       ON token_usage(chat_id, created_at DESC);
+
+    -- ── CRM ─────────────────────────────────────────────────────────
+
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      company TEXT,
+      role TEXT,
+      notes TEXT,
+      photo_path TEXT,
+      source TEXT DEFAULT 'manual',
+      first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_contact INTEGER NOT NULL DEFAULT (unixepoch()),
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_contacts_chat ON contacts(chat_id);
+    CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_chat_email
+      ON contacts(chat_id, email);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_chat_name
+      ON contacts(chat_id, LOWER(name)) WHERE email IS NULL;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS contacts_fts USING fts5(
+      name, email, company, role, notes,
+      content='contacts',
+      content_rowid='id'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS contacts_ai AFTER INSERT ON contacts BEGIN
+      INSERT INTO contacts_fts(rowid, name, email, company, role, notes)
+        VALUES (new.id, new.name, new.email, new.company, new.role, new.notes);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS contacts_ad AFTER DELETE ON contacts BEGIN
+      INSERT INTO contacts_fts(contacts_fts, rowid, name, email, company, role, notes)
+        VALUES('delete', old.id, old.name, old.email, old.company, old.role, old.notes);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS contacts_au AFTER UPDATE ON contacts BEGIN
+      INSERT INTO contacts_fts(contacts_fts, rowid, name, email, company, role, notes)
+        VALUES('delete', old.id, old.name, old.email, old.company, old.role, old.notes);
+      INSERT INTO contacts_fts(rowid, name, email, company, role, notes)
+        VALUES (new.id, new.name, new.email, new.company, new.role, new.notes);
+    END;
+
+    CREATE TABLE IF NOT EXISTS interactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK(type IN ('email','meeting','call','note','other')),
+      source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','auto')),
+      summary TEXT,
+      date INTEGER NOT NULL DEFAULT (unixepoch()),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_interactions_contact
+      ON interactions(contact_id, date DESC);
   `);
 }
 

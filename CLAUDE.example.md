@@ -45,6 +45,7 @@ Skills are defined in `.claude/skills/` and loaded automatically. Use them when 
 | Skill | Triggers |
 |-------|---------|
 | `generate-image` | draw, generate image, picture, visualize, create illustration |
+| `crm` | contacts, people, CRM, follow-up, pre-meeting briefing |
 
 ## n8n Integrations
 
@@ -78,6 +79,11 @@ Common cron patterns:
 - Every Monday at 9am: `0 9 * * 1`
 - Every weekday at 8am: `0 8 * * 1-5`
 - Every 4 hours: `0 */4 * * *`
+
+Common CRM scheduled tasks:
+- Daily contact scan: `/schedule 0 7 * * * Scan my recent emails and calendar for new contacts. Add any new people to the CRM and update existing contacts.`
+- Pre-meeting briefing: `/schedule 0 8 * * 1-5 Check my calendar for today. For each meeting with external people, look them up in the CRM and send me a briefing.`
+- Weekly follow-up check: `/schedule 0 9 * * 1 Check my CRM for contacts I haven't been in touch with for 30+ days. List the top 5 I should reconnect with.`
 
 ## Process Management
 
