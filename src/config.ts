@@ -44,7 +44,3 @@ export const SCHEDULER_POLL_MS = 60_000;
 // n8n integration
 export const N8N_BASE_URL = (env['N8N_BASE_URL'] ?? '').trim().replace(/\/+$/, '');
 export const N8N_API_KEY = env['N8N_API_KEY'] ?? '';
-
-// Gemini (image generation)
-export const GEMINI_API_KEY = env['GEMINI_API_KEY'] ?? '';
-export const GEMINI_IMAGE_MODEL = env['GEMINI_IMAGE_MODEL'] || 'gemini-2.5-flash-image';

@@ -29,7 +29,7 @@ import {
   resumeScheduledTask,
 } from './schedule-cli.js';
 import { isN8nConfigured, callN8nWebhook, formatN8nResult } from './integrations/n8n.js';
-import { isGeminiConfigured, generateImage } from './integrations/gemini.js';
+
 
 // ── Context Window Tracking ─────────────────────────────────────────────
 // Track the last known usage per chat so we can warn proactively.
@@ -173,7 +173,6 @@ export function createBot(): Bot {
       `Voice STT: ${voice.stt ? 'enabled' : 'disabled'}`,
       `Voice TTS: ${voice.tts ? 'enabled' : 'disabled'}`,
       `Voice mode: ${voiceEnabledChats.has(chatId) ? 'ON' : 'OFF'}`,
-      `Gemini images: ${isGeminiConfigured() ? 'enabled' : 'disabled'}`,
       `Uptime: ${formatUptime(process.uptime())}`,
     ];
 
@@ -311,44 +310,6 @@ export function createBot(): Bot {
     await ctx.replyWithChatAction('typing');
     const result = await callN8nWebhook(path, params);
     await sendLongMessage(ctx, formatN8nResult(result));
-  });
-
-  // ── Image Generation Commands ──────────────────────────────────────
-
-  bot.command('imagine', async (ctx) => {
-    const chatId = ctx.chat.id.toString();
-    if (!isGeminiConfigured()) { await ctx.reply('Gemini not configured. Set GEMINI_API_KEY in .env'); return; }
-    if (isRateLimited(chatId)) { await ctx.reply('Rate limit exceeded. Please wait a moment.'); return; }
-    const prompt = ctx.match;
-    if (!prompt) {
-      await ctx.reply('Usage: /imagine <prompt>\nExample: /imagine a cat riding a bicycle in space');
-      return;
-    }
-    if (prompt.length > 2000) {
-      await ctx.reply(`Prompt too long (${prompt.length} chars, max 2000).`);
-      return;
-    }
-
-    await ctx.replyWithChatAction('upload_photo');
-    const photoInterval = setInterval(() => {
-      ctx.replyWithChatAction('upload_photo').catch(() => {});
-    }, TYPING_REFRESH_MS);
-
-    try {
-      const result = await generateImage(prompt);
-      clearInterval(photoInterval);
-
-      if (result.ok) {
-        const opts = result.text ? { caption: result.text.slice(0, 1024) } : {};
-        await ctx.replyWithPhoto(new InputFile(result.imageBuffer, 'generated.png'), opts);
-      } else {
-        await ctx.reply(result.error);
-      }
-    } catch (err) {
-      clearInterval(photoInterval);
-      logger.error({ err, chatId }, 'Imagine command failed');
-      await ctx.reply('Failed to generate image. Try again.');
-    }
   });
 
   bot.command('schedule', async (ctx) => {
@@ -559,6 +520,7 @@ async function processMessage(
       message: fullMessage,
       onTyping: () => {},
       abortSignal: abortController.signal,
+      env: { TELEGRAM_CHAT_ID: chatId },
     };
     if (sessionId !== undefined) agentOpts.sessionId = sessionId;
     const result = await runAgent(agentOpts);

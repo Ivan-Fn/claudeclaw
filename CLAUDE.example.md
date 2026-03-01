@@ -38,6 +38,14 @@ Execute. Don't explain what you're about to do -- just do it. When [YOUR_NAME] a
 - **Tools available**: Bash, file system, web search, and all MCP servers configured in Claude settings
 - **This project** lives at the directory where `CLAUDE.md` is located
 
+## Available Skills (invoke automatically when relevant)
+
+Skills are defined in `.claude/skills/` and loaded automatically. Use them when the conversation calls for it.
+
+| Skill | Triggers |
+|-------|---------|
+| `generate-image` | draw, generate image, picture, visualize, create illustration |
+
 ## n8n Integrations
 
 <!-- Optional: if you run an n8n instance, configure webhook commands here. -->

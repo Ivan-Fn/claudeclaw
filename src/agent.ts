@@ -37,12 +37,14 @@ export interface RunAgentOptions {
   sessionId?: string;
   onTyping?: () => void;
   abortSignal?: AbortSignal;
+  /** Extra environment variables passed to the Claude Code subprocess. */
+  env?: Record<string, string>;
 }
 
 // ── Run Agent ──────────────────────────────────────────────────────────
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
-  const { message, sessionId, onTyping, abortSignal } = opts;
+  const { message, sessionId, onTyping, abortSignal, env: extraEnv } = opts;
   const startTime = Date.now();
 
   const abortController = new AbortController();
@@ -89,6 +91,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     }
     if (env['ANTHROPIC_API_KEY']) {
       sdkEnv['ANTHROPIC_API_KEY'] = env['ANTHROPIC_API_KEY'];
+    }
+    if (extraEnv) {
+      Object.assign(sdkEnv, extraEnv);
     }
 
     const systemPrompt = CLAUDE_SYSTEM_PROMPT_APPEND

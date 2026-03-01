@@ -97,7 +97,6 @@ async function main(): Promise<void> {
       { command: 'cal', description: 'Calendar (today/tomorrow/week)' },
       { command: 'todo', description: 'Notion tasks (list/add)' },
       { command: 'n8n', description: 'Call any n8n webhook' },
-      { command: 'imagine', description: 'Generate an image from a text prompt' },
       { command: 'schedule', description: 'Schedule a cron task' },
       { command: 'tasks', description: 'List scheduled tasks' },
       { command: 'deltask', description: 'Delete a scheduled task' },
