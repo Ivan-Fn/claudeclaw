@@ -33,6 +33,13 @@ export class SlackChannel implements MessageChannel {
   private app: App;
   private client: WebClient;
 
+  /**
+   * Active thread_ts per channel. When a message comes from a channel
+   * (via @mention), we store the triggering message's ts so that
+   * send/sendFormatted reply in that thread. Cleared after each response.
+   */
+  private activeThreads = new Map<string, string>();
+
   constructor() {
     if (!SLACK_BOT_TOKEN) {
       throw new Error('SLACK_BOT_TOKEN not set');
@@ -67,13 +74,16 @@ export class SlackChannel implements MessageChannel {
   }
 
   async send(chatId: string, text: string): Promise<void> {
+    const threadTs = this.activeThreads.get(chatId);
     await this.client.chat.postMessage({
       channel: chatId,
       text,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
     });
   }
 
   async sendFormatted(chatId: string, text: string): Promise<void> {
+    const threadTs = this.activeThreads.get(chatId);
     const chunks = splitSlackMessage(text, SLACK_MAX_LENGTH);
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]!;
@@ -85,9 +95,9 @@ export class SlackChannel implements MessageChannel {
         await this.client.chat.postMessage({
           channel: chatId,
           text: formatted,
-          // Disable Slack's auto-unfurling of URLs
           unfurl_links: false,
           unfurl_media: false,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
         });
       } catch (err) {
         // On rate limit, wait and retry once
@@ -100,6 +110,7 @@ export class SlackChannel implements MessageChannel {
               text: formatted,
               unfurl_links: false,
               unfurl_media: false,
+              ...(threadTs ? { thread_ts: threadTs } : {}),
             });
             continue;
           } catch {
@@ -111,6 +122,7 @@ export class SlackChannel implements MessageChannel {
           await this.client.chat.postMessage({
             channel: chatId,
             text: chunk,
+            ...(threadTs ? { thread_ts: threadTs } : {}),
           });
         } catch (plainErr) {
           logger.warn({ err: plainErr }, 'Failed to send Slack message chunk');
@@ -162,10 +174,22 @@ export class SlackChannel implements MessageChannel {
     });
   }
 
+  // ── Thread Management ───────────────────────────────────────────────
+
+  /** Set the thread_ts for replies in a channel. */
+  setThread(chatId: string, threadTs: string): void {
+    this.activeThreads.set(chatId, threadTs);
+  }
+
+  /** Clear the active thread for a channel. */
+  clearThread(chatId: string): void {
+    this.activeThreads.delete(chatId);
+  }
+
   // ── Internal: Message Handlers ──────────────────────────────────────
 
   private setupMessageHandlers(): void {
-    // Listen for all messages (DMs and channels where bot is invited)
+    // Listen for DMs (direct messages to the bot)
     this.app.message(async ({ message, say }) => {
       // Filter out bot messages, message_changed, etc.
       if (!('user' in message) || !message.user) return;
@@ -189,7 +213,7 @@ export class SlackChannel implements MessageChannel {
 
       const cid = compositeId('slack', channelId);
 
-      // Handle slash-like commands (text commands since we're not using Slack slash commands)
+      // Handle text commands
       if (text.startsWith('/')) {
         const handled = await this.handleCommand(cid, channelId, text, say);
         if (handled) return;
@@ -199,6 +223,63 @@ export class SlackChannel implements MessageChannel {
         await say('Rate limit exceeded. Please wait a moment.');
         return;
       }
+
+      // DMs: no thread needed
+      enqueueDebounced(cid, text, (merged) =>
+        processMessage(this, cid, channelId, merged),
+      );
+    });
+
+    // Listen for @mentions in channels
+    this.app.event('app_mention', async ({ event }) => {
+      const userId = event.user ?? '';
+      const channelId = event.channel;
+      const ts = event.ts;
+      // If this mention is inside an existing thread, use the thread's root ts
+      const threadTs = ('thread_ts' in event ? event.thread_ts as string : undefined) ?? ts;
+
+      // Strip the bot mention from the text: "<@U12345> hello" -> "hello"
+      const rawText = event.text ?? '';
+      const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
+
+      if (!text || !userId) return; // Empty mention or no user, ignore
+
+      // Auth: check allowed channels
+      if (SLACK_ALLOWED_CHANNEL_IDS.length > 0 && !SLACK_ALLOWED_CHANNEL_IDS.includes(channelId)) {
+        logger.warn({ channelId, userId }, 'Slack mention from non-allowed channel');
+        return;
+      }
+
+      // Auth: check allowed users
+      if (SLACK_ALLOWED_USER_IDS.length > 0 && !SLACK_ALLOWED_USER_IDS.includes(userId)) {
+        logger.warn({ channelId, userId }, 'Slack mention from non-allowed user');
+        return;
+      }
+
+      const cid = compositeId('slack', channelId);
+
+      if (isRateLimited(cid)) {
+        this.setThread(channelId, threadTs);
+        await this.send(channelId, 'Rate limit exceeded. Please wait a moment.');
+        this.clearThread(channelId);
+        return;
+      }
+
+      // Handle text commands in mentions
+      if (text.startsWith('/')) {
+        this.setThread(channelId, threadTs);
+        const handled = await this.handleCommand(cid, channelId, text, (msg: string) =>
+          this.send(channelId, msg),
+        );
+        if (handled) {
+          this.clearThread(channelId);
+          return;
+        }
+        this.clearThread(channelId);
+      }
+
+      // Set thread context so replies go into the thread
+      this.setThread(channelId, threadTs);
 
       enqueueDebounced(cid, text, (merged) =>
         processMessage(this, cid, channelId, merged),
