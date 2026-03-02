@@ -17,10 +17,77 @@ Build a daily digest combining email, calendar, and CRM data.
 - Scheduled daily briefing task
 - "Any emails I need to deal with?"
 - "What's coming up this week?" (adjust date range)
+- "Create a calendar event for..." / "Schedule a meeting with..."
 
-### Quick Digest (trigger the n8n workflow)
+### Tool Priority
 
-For a fast morning digest without CRM enrichment, trigger the existing n8n workflow:
+ALWAYS prefer the Google Workspace MCP tools over n8n webhooks:
+- MCP tools: direct Google API access, supports read AND write (create events, send emails)
+- n8n webhooks: read-only for gmail/calendar, use only for the automated morning digest pipeline
+
+The MCP server is configured at ~/.claude/settings.json as "google-workspace".
+User email: ivan.fofanov@gmail.com
+
+### Available MCP Tools
+
+#### Calendar
+- **get_events** -- fetch events from Google Calendar (single event or range)
+- **manage_event** -- create, update, or delete calendar events
+- **list_calendars** -- list available calendars
+- **query_freebusy** -- check free/busy status (requires --tool-tier complete)
+
+#### Gmail
+- **search_gmail_messages** -- search emails with Gmail query syntax
+- **get_gmail_message_content** -- get full email content by ID
+- **get_gmail_messages_content_batch** -- get multiple emails at once
+- **send_gmail_message** -- send or reply to emails
+- **draft_gmail_message** -- create email drafts (requires --tool-tier complete)
+
+### Creating Calendar Events
+
+Use the manage_event MCP tool:
+
+```
+manage_event({
+  user_google_email: "ivan.fofanov@gmail.com",
+  action: "create",
+  summary: "Meeting title",
+  start_time: "2026-03-02T14:00:00-05:00",  // RFC3339 format
+  end_time: "2026-03-02T15:00:00-05:00",
+  timezone: "America/New_York",
+  description: "Meeting notes",
+  attendees: ["person@email.com"],           // optional
+  add_google_meet: true                       // optional
+})
+```
+
+### Fetching Calendar Events
+
+Use the get_events MCP tool:
+
+```
+get_events({
+  user_google_email: "ivan.fofanov@gmail.com",
+  time_min: "2026-03-02T00:00:00-05:00",
+  time_max: "2026-03-03T00:00:00-05:00"
+})
+```
+
+### Searching Emails
+
+Use the search_gmail_messages MCP tool:
+
+```
+search_gmail_messages({
+  user_google_email: "ivan.fofanov@gmail.com",
+  query: "is:unread newer_than:12h -category:promotions",
+  max_results: 20
+})
+```
+
+### Quick Digest (n8n -- for automated/scheduled runs)
+
+For the automated morning digest, trigger the n8n workflow:
 
 ```bash
 curl -s -X POST http://localhost:5678/webhook/morning-digest \
@@ -28,67 +95,29 @@ curl -s -X POST http://localhost:5678/webhook/morning-digest \
 ```
 
 This fires the full n8n pipeline (priority inbox, financial alerts, deals, calendar)
-and sends the formatted digest directly to Telegram. Use this when the user just
-wants the standard morning digest quickly.
+and sends the formatted digest directly to Telegram.
 
 ### Rich Briefing (agent-built, with CRM)
 
-For pre-meeting briefings or when CRM context is valuable, build the digest
-by calling individual webhooks and enriching with contact data.
+For pre-meeting briefings or when CRM context is valuable:
 
-#### Step 1: Fetch data in parallel
-
-Run these curl commands (all in one bash block for speed):
-
-```bash
-# Fetch all data sources in parallel
-PRIORITY=$(curl -s -X POST http://localhost:5678/webhook/gmail \
-  -H "Content-Type: application/json" \
-  -d '{"q":"is:unread newer_than:12h -category:promotions -category:social -category:forums"}')
-
-FINANCIAL=$(curl -s -X POST http://localhost:5678/webhook/gmail \
-  -H "Content-Type: application/json" \
-  -d '{"q":"newer_than:7d subject:(payment OR invoice OR renewal OR subscription)"}')
-
-CALENDAR=$(curl -s -X POST http://localhost:5678/webhook/calendar \
-  -H "Content-Type: application/json" -d '{}')
-
-echo "===PRIORITY==="
-echo "$PRIORITY"
-echo "===FINANCIAL==="
-echo "$FINANCIAL"
-echo "===CALENDAR==="
-echo "$CALENDAR"
-```
-
-#### Step 2: Look up meeting attendees in CRM
-
-For each calendar event with attendees, search the contacts DB:
+1. Fetch today's calendar via MCP get_events
+2. Fetch unread emails via MCP search_gmail_messages
+3. Look up meeting attendees in CRM:
 
 ```bash
 CHAT_ID=$(sqlite3 store/master-agent.db "SELECT chat_id FROM sessions LIMIT 1;")
 
-# Look up attendee by email
 sqlite3 store/master-agent.db "
-  SELECT c.name, c.company, c.role, c.notes, c.photo_path,
+  SELECT c.name, c.company, c.role, c.notes,
     datetime(c.last_contact, 'unixepoch', 'localtime') as last_seen,
     c.interaction_count
   FROM contacts c
   WHERE c.chat_id = '$CHAT_ID' AND c.email = 'attendee@email.com';
 "
-
-# Get recent interactions with this contact
-sqlite3 store/master-agent.db "
-  SELECT type, summary, datetime(date, 'unixepoch', 'localtime') as when
-  FROM interactions
-  WHERE contact_id = CONTACT_ID
-  ORDER BY date DESC LIMIT 3;
-"
 ```
 
-#### Step 3: Format the briefing
-
-Use this format for Telegram (keep it tight):
+4. Format the briefing:
 
 ```
 Good morning. Here's your day:
@@ -119,31 +148,8 @@ FYI (N more emails)
 - Only add CRM context for meetings with external people
 - Skip CRM lookup for internal/recurring meetings
 - Financial alerts: extract amounts and due dates from subject/snippet
-- Deals section: only include if user has asked for it or it's the full morning digest
 - Cap total message at ~4000 chars for Telegram
 - If more than 10 inbox items, show top 10 + "...and N more"
-
-### Date Ranges for Different Queries
-
-| Request | Gmail query modifier | Calendar range |
-|---------|---------------------|----------------|
-| Today | `newer_than:12h` | today |
-| Tomorrow | n/a | tomorrow |
-| This week | `newer_than:7d` | next 7 days |
-
-For tomorrow's calendar:
-```bash
-curl -s -X POST http://localhost:5678/webhook/calendar \
-  -H "Content-Type: application/json" \
-  -d "{\"timeMin\":\"$(date -v+1d '+%Y-%m-%dT00:00:00')\",\"timeMax\":\"$(date -v+2d '+%Y-%m-%dT00:00:00')\"}"
-```
-
-For this week's calendar:
-```bash
-curl -s -X POST http://localhost:5678/webhook/calendar \
-  -H "Content-Type: application/json" \
-  -d "{\"timeMin\":\"$(date '+%Y-%m-%dT00:00:00')\",\"timeMax\":\"$(date -v+7d '+%Y-%m-%dT00:00:00')\"}"
-```
 
 ### Auto-Discovery Integration
 
@@ -161,12 +167,12 @@ Only suggest this for real people (not noreply@, notifications@, etc).
 
 ### Scheduled Task Setup
 
-To set up daily morning briefings with CRM enrichment:
+Daily morning briefings with CRM enrichment:
 ```
 /schedule 0 7 * * * Run my morning briefing. Fetch emails and calendar, look up meeting attendees in the CRM, and send me the full digest.
 ```
 
-For pre-meeting briefings on weekdays:
+Pre-meeting briefings on weekdays:
 ```
 /schedule 0 8 * * 1-5 Check my calendar for today's meetings. For each meeting with external attendees, look them up in the CRM and send me a prep briefing with their background, last interaction, and any notes.
 ```

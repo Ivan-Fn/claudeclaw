@@ -38,6 +38,25 @@ Execute. Don't explain what you're about to do -- just do it. When [YOUR_NAME] a
 - **Tools available**: Bash, file system, web search, and all MCP servers configured in Claude settings
 - **This project** lives at the directory where `CLAUDE.md` is located
 
+### Google Workspace MCP Server
+
+A Google Workspace MCP server may be configured in `~/.claude/settings.json`.
+When available, ALWAYS prefer MCP tools over n8n webhooks for Google operations.
+MCP tools support both read AND write (create events, send emails), while n8n
+webhooks are typically read-only.
+
+Available MCP tools (when configured):
+
+| Tool | What it does |
+|------|-------------|
+| `get_events` | Fetch calendar events (by date range or single event) |
+| `manage_event` | Create, update, or delete calendar events |
+| `search_gmail_messages` | Search emails with Gmail query syntax |
+| `get_gmail_message_content` | Get full email content by ID |
+| `send_gmail_message` | Send or reply to emails |
+
+All MCP tools require `user_google_email` parameter. Times use RFC3339 format.
+
 ## Available Skills (invoke automatically when relevant)
 
 Skills are defined in `.claude/skills/` and loaded automatically. Use them when the conversation calls for it.
