@@ -76,6 +76,9 @@ export const AGENT_FORWARD_ENV = (env['AGENT_FORWARD_ENV'] ?? '')
   .map((s) => s.trim())
   .filter(Boolean);
 
+// Custom /start message (overrides the default "BOT_DISPLAY_NAME online..." greeting)
+export const BOT_START_MESSAGE = env['BOT_START_MESSAGE']?.trim() || '';
+
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 

@@ -8,6 +8,7 @@ import {
   NOTIFY_ON_RESTART,
   NOTIFY_ON_RESTART_IDS,
   BOT_DISPLAY_NAME,
+  BOT_START_MESSAGE,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -197,7 +198,8 @@ export class TelegramChannel implements MessageChannel {
     const bot = this.bot;
 
     bot.command('start', async (ctx) => {
-      await ctx.reply(`${BOT_DISPLAY_NAME} online. Send me a message and I'll process it with Claude Code.`);
+      const msg = BOT_START_MESSAGE || `${BOT_DISPLAY_NAME} online. Send me a message and I'll process it with Claude Code.`;
+      await ctx.reply(msg);
     });
 
     bot.command('chatid', async (ctx) => {

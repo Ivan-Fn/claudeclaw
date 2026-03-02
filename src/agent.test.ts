@@ -15,6 +15,7 @@ vi.mock('./config.js', () => ({
   AGENT_DAILY_COST_LIMIT_USD: 0,
   SETTINGS_SOURCES: ['user', 'project'],
   AGENT_FORWARD_ENV: [],
+  BOT_START_MESSAGE: '',
 }));
 
 // Mock env to avoid reading .env file
