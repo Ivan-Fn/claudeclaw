@@ -20,12 +20,16 @@ export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? '';
 export const ELEVENLABS_API_KEY = env['ELEVENLABS_API_KEY'] ?? '';
 export const ELEVENLABS_VOICE_ID = env['ELEVENLABS_VOICE_ID'] ?? '';
 
+// Bot identity (used for DB, PID, logs, and display name)
+export const BOT_NAME = env['BOT_NAME']?.trim() || 'master-agent';
+export const BOT_DISPLAY_NAME = env['BOT_DISPLAY_NAME']?.trim() || 'Master Agent';
+
 // Paths
 export { PROJECT_ROOT };
 export const STORE_DIR = join(PROJECT_ROOT, 'store');
-export const DB_PATH = join(STORE_DIR, 'master-agent.db');
+export const DB_PATH = join(STORE_DIR, `${BOT_NAME}.db`);
 export const UPLOADS_DIR = join(PROJECT_ROOT, 'workspace', 'uploads');
-export const PID_FILE = join(STORE_DIR, 'master-agent.pid');
+export const PID_FILE = join(STORE_DIR, `${BOT_NAME}.pid`);
 
 // Message debounce: buffer rapid messages before sending to Claude
 export const MESSAGE_DEBOUNCE_MS = Number(env['MESSAGE_DEBOUNCE_MS']) || 3_000;
@@ -51,6 +55,20 @@ export const AGENT_CWD = env['AGENT_CWD']?.trim() || PROJECT_ROOT;
 
 // Send restart notification to all allowed chats (default: true)
 export const NOTIFY_ON_RESTART = (env['NOTIFY_ON_RESTART'] ?? 'true') !== 'false';
+
+// Claude settings sources: comma-separated list (default: 'user,project')
+// Set to 'project' to only load project-level settings (no user MCP servers, etc.)
+export const SETTINGS_SOURCES = (env['SETTINGS_SOURCES'] ?? 'user,project')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean) as ('user' | 'project')[];
+
+// Extra env vars to forward to Claude agent subprocess (comma-separated keys)
+// Example: AGENT_FORWARD_ENV=CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID
+export const AGENT_FORWARD_ENV = (env['AGENT_FORWARD_ENV'] ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;

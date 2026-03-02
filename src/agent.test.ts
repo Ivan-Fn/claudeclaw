@@ -13,6 +13,8 @@ vi.mock('./config.js', () => ({
   MAX_TURNS: 50,
   AGENT_TIMEOUT_MS: 5000,
   AGENT_DAILY_COST_LIMIT_USD: 0,
+  SETTINGS_SOURCES: ['user', 'project'],
+  AGENT_FORWARD_ENV: [],
 }));
 
 // Mock env to avoid reading .env file

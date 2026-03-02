@@ -1,5 +1,5 @@
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -133,6 +133,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     if (env['GEMINI_API_KEY']) {
       sdkEnv['GOOGLE_API_KEY'] = env['GEMINI_API_KEY'];
     }
+    // Forward additional env vars configured via AGENT_FORWARD_ENV
+    for (const key of AGENT_FORWARD_ENV) {
+      if (env[key]) {
+        sdkEnv[key] = env[key];
+      }
+    }
     if (extraEnv) {
       Object.assign(sdkEnv, extraEnv);
     }
@@ -150,7 +156,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         ...resumeOpts,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        settingSources: ['user', 'project'],
+        settingSources: SETTINGS_SOURCES,
         systemPrompt,
         maxTurns: MAX_TURNS,
         abortController,

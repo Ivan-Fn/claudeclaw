@@ -6,6 +6,7 @@ import {
   TYPING_REFRESH_MS,
   PROJECT_ROOT,
   NOTIFY_ON_RESTART,
+  BOT_DISPLAY_NAME,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -194,7 +195,7 @@ export class TelegramChannel implements MessageChannel {
     const bot = this.bot;
 
     bot.command('start', async (ctx) => {
-      await ctx.reply('Master Agent online. Send me a message and I\'ll process it with Claude Code.');
+      await ctx.reply(`${BOT_DISPLAY_NAME} online. Send me a message and I'll process it with Claude Code.`);
     });
 
     bot.command('chatid', async (ctx) => {
@@ -259,7 +260,7 @@ export class TelegramChannel implements MessageChannel {
       const usage = getLastUsage(cid);
 
       const lines = [
-        '<b>Master Agent Status</b>',
+        `<b>${BOT_DISPLAY_NAME} Status</b>`,
         '',
         `Session: ${sessionId ? `<code>${sessionId.slice(0, 8)}...</code>` : 'none'}`,
         `Memories: ${memStats.total} (${memStats.semantic} semantic, ${memStats.episodic} episodic)`,

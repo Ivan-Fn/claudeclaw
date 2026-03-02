@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { PID_FILE, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN } from './config.js';
+import { PID_FILE, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, BOT_DISPLAY_NAME } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
 import { escapeHtml } from './channels/format-telegram.js';
@@ -84,7 +84,7 @@ const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  logger.info({ pid: process.pid }, 'Master Agent starting');
+  logger.info({ pid: process.pid }, `${BOT_DISPLAY_NAME} starting`);
 
   // 1. Acquire PID lock
   acquireLock();
