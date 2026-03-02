@@ -53,8 +53,14 @@ export const SCHEDULER_POLL_MS = 60_000;
 // Set to override where Claude Code sessions run (e.g., a different project root)
 export const AGENT_CWD = env['AGENT_CWD']?.trim() || PROJECT_ROOT;
 
-// Send restart notification to all allowed chats (default: true)
-export const NOTIFY_ON_RESTART = (env['NOTIFY_ON_RESTART'] ?? 'true') !== 'false';
+// Send restart notification (default: true = all allowed chats)
+// Values: 'true' (all), 'false' (none), or comma-separated chat IDs (e.g., '85308772,12345')
+const notifyVal = (env['NOTIFY_ON_RESTART'] ?? 'true').trim();
+export const NOTIFY_ON_RESTART = notifyVal !== 'false';
+export const NOTIFY_ON_RESTART_IDS: string[] =
+  notifyVal === 'true' || notifyVal === 'false'
+    ? []  // empty = use ALLOWED_CHAT_IDS (when true) or skip (when false)
+    : notifyVal.split(',').map((s) => s.trim()).filter(Boolean);
 
 // Claude settings sources: comma-separated list (default: 'user,project')
 // Set to 'project' to only load project-level settings (no user MCP servers, etc.)

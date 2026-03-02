@@ -6,6 +6,7 @@ import {
   TYPING_REFRESH_MS,
   PROJECT_ROOT,
   NOTIFY_ON_RESTART,
+  NOTIFY_ON_RESTART_IDS,
   BOT_DISPLAY_NAME,
 } from '../config.js';
 import { logger } from '../logger.js';
@@ -105,7 +106,8 @@ export class TelegramChannel implements MessageChannel {
         logger.info({ username: botInfo.username }, 'Telegram bot started');
         if (NOTIFY_ON_RESTART) {
           const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-          for (const chatId of ALLOWED_CHAT_IDS) {
+          const notifyIds = NOTIFY_ON_RESTART_IDS.length > 0 ? NOTIFY_ON_RESTART_IDS : ALLOWED_CHAT_IDS;
+          for (const chatId of notifyIds) {
             try {
               await this.bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
             } catch {
