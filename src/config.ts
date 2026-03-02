@@ -42,6 +42,13 @@ export const MEMORY_MIN_SALIENCE = 0.1;
 // Scheduler
 export const SCHEDULER_POLL_MS = 60_000;
 
+// Agent working directory (defaults to PROJECT_ROOT)
+// Set to override where Claude Code sessions run (e.g., a different project root)
+export const AGENT_CWD = env['AGENT_CWD']?.trim() || PROJECT_ROOT;
+
+// Daily cost limit in USD (0 = unlimited)
+export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
+
 // n8n integration
 export const N8N_BASE_URL = (env['N8N_BASE_URL'] ?? '').trim().replace(/\/+$/, '');
 export const N8N_API_KEY = env['N8N_API_KEY'] ?? '';

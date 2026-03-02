@@ -8,9 +8,11 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 // Mock config to avoid reading .env
 vi.mock('./config.js', () => ({
   PROJECT_ROOT: '/tmp/test',
+  AGENT_CWD: '/tmp/test',
   CLAUDE_SYSTEM_PROMPT_APPEND: '',
   MAX_TURNS: 50,
   AGENT_TIMEOUT_MS: 5000,
+  AGENT_DAILY_COST_LIMIT_USD: 0,
 }));
 
 // Mock env to avoid reading .env file

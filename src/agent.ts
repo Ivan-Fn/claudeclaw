@@ -1,7 +1,30 @@
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { PROJECT_ROOT, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+
+// ── Daily Cost Tracking ───────────────────────────────────────────────
+
+let dailyCostUsd = 0;
+let dailyCostResetDate = new Date().toDateString();
+
+function checkDailyCostLimit(): string | null {
+  // Reset counter at midnight
+  const today = new Date().toDateString();
+  if (today !== dailyCostResetDate) {
+    dailyCostUsd = 0;
+    dailyCostResetDate = today;
+  }
+
+  if (AGENT_DAILY_COST_LIMIT_USD > 0 && dailyCostUsd >= AGENT_DAILY_COST_LIMIT_USD) {
+    return `Daily cost limit reached ($${dailyCostUsd.toFixed(2)} / $${AGENT_DAILY_COST_LIMIT_USD.toFixed(2)}). Try again tomorrow.`;
+  }
+  return null;
+}
+
+function trackCost(cost: number): void {
+  dailyCostUsd += cost;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -46,6 +69,20 @@ export interface RunAgentOptions {
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const { message, sessionId, onTyping, abortSignal, env: extraEnv } = opts;
   const startTime = Date.now();
+
+  // Check daily cost limit before starting
+  const costError = checkDailyCostLimit();
+  if (costError) {
+    return {
+      text: costError,
+      sessionId,
+      costUsd: 0,
+      durationMs: 0,
+      numTurns: 0,
+      usage: null,
+      error: 'daily_cost_limit',
+    };
+  }
 
   const abortController = new AbortController();
 
@@ -109,7 +146,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     const q = query({
       prompt: message,
       options: {
-        cwd: PROJECT_ROOT,
+        cwd: AGENT_CWD,
         ...resumeOpts,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
@@ -171,6 +208,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     didCompact,
     lastCallCacheRead,
   }, 'Agent query completed');
+
+  // Track cost for daily limit enforcement
+  trackCost(costUsd);
 
   const result: AgentResult = {
     text: resultText || 'No response from agent.',
