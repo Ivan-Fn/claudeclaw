@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { PID_FILE, TELEGRAM_BOT_TOKEN } from './config.js';
+import { PID_FILE, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
 import { escapeHtml } from './channels/format-telegram.js';
@@ -10,6 +10,7 @@ import { enqueue } from './queue.js';
 import { runDecaySweep } from './memory.js';
 import { cleanupOldUploads } from './media.js';
 import { TelegramChannel } from './channels/telegram.js';
+import { SlackChannel } from './channels/slack.js';
 import { channelFromComposite, rawChatId } from './channels/types.js';
 import type { MessageChannel } from './channels/types.js';
 
@@ -102,12 +103,12 @@ async function main(): Promise<void> {
     logger.info('Telegram channel configured');
   }
 
-  // Future: Slack channel
-  // if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
-  //   const slack = new SlackChannel();
-  //   channels.set('slack', slack);
-  //   logger.info('Slack channel configured');
-  // }
+  let slack: SlackChannel | undefined;
+  if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
+    slack = new SlackChannel();
+    channels.set('slack', slack);
+    logger.info('Slack channel configured');
+  }
 
   if (channels.size === 0) {
     logger.error('No channels configured. Set TELEGRAM_BOT_TOKEN (and/or SLACK_BOT_TOKEN) in .env');
@@ -148,8 +149,12 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   // 7. Start all channels
-  // Telegram's start() blocks (long-polling), so start it last
+  // Slack uses Socket Mode (non-blocking), start it first.
+  // Telegram's start() blocks (long-polling), so start it last.
   try {
+    if (slack) {
+      await slack.start();
+    }
     if (telegram) {
       await telegram.start();
     }

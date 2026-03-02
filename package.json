@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
+    "@slack/bolt": "^4.6.0",
+    "@slack/web-api": "^7.14.1",
     "better-sqlite3": "^12.6.2",
     "cron-parser": "^5.5.0",
     "grammy": "^1.40.1",

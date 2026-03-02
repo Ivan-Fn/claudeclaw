@@ -52,6 +52,18 @@ export const AGENT_CWD = env['AGENT_CWD']?.trim() || PROJECT_ROOT;
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 
+// Slack
+export const SLACK_BOT_TOKEN = env['SLACK_BOT_TOKEN'] ?? '';
+export const SLACK_APP_TOKEN = env['SLACK_APP_TOKEN'] ?? '';
+export const SLACK_ALLOWED_CHANNEL_IDS = (env['SLACK_ALLOWED_CHANNEL_IDS'] ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+export const SLACK_ALLOWED_USER_IDS = (env['SLACK_ALLOWED_USER_IDS'] ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 // n8n integration
 export const N8N_BASE_URL = (env['N8N_BASE_URL'] ?? '').trim().replace(/\/+$/, '');
 export const N8N_API_KEY = env['N8N_API_KEY'] ?? '';

@@ -118,7 +118,7 @@ export async function processMessage(
     // 5. Run agent (with auto-continue on timeout)
     let currentMessage = fullMessage;
     let currentSessionId = sessionId;
-    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, abortController);
+    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, abortController);
 
     // Auto-continue: if the agent timed out mid-work, resume automatically
     for (let retry = 0; retry < MAX_TIMEOUT_RETRIES && result.error === 'timeout'; retry++) {
@@ -134,7 +134,7 @@ export async function processMessage(
       activeAborts.set(cid, retryAbort);
 
       currentMessage = 'Continue where you left off. Complete the task you were working on.';
-      result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, retryAbort);
+      result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, retryAbort);
     }
 
     // 6. Save session
@@ -208,13 +208,16 @@ async function runAgentWithAbort(
   message: string,
   sessionId: string | undefined,
   chatId: string,
+  channelId: string,
   abortController: AbortController,
 ) {
+  // Pass the channel-specific chat ID env var to the agent subprocess
+  const envKey = `${channelId.toUpperCase()}_CHAT_ID`;
   const agentOpts: Parameters<typeof runAgent>[0] = {
     message,
     onTyping: () => {},
     abortSignal: abortController.signal,
-    env: { TELEGRAM_CHAT_ID: chatId },
+    env: { [envKey]: chatId },
   };
   if (sessionId !== undefined) agentOpts.sessionId = sessionId;
   return runAgent(agentOpts);
