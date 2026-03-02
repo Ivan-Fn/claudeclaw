@@ -46,6 +46,7 @@ Skills are defined in `.claude/skills/` and loaded automatically. Use them when 
 |-------|---------|
 | `generate-image` | draw, generate image, picture, visualize, create illustration |
 | `crm` | contacts, people, CRM, follow-up, pre-meeting briefing |
+| `morning-briefing` | morning digest, daily briefing, what's on today, pre-meeting prep |
 
 ## n8n Integrations
 
