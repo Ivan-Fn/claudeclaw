@@ -5,6 +5,7 @@ import {
   MAX_MESSAGE_LENGTH,
   TYPING_REFRESH_MS,
   PROJECT_ROOT,
+  NOTIFY_ON_RESTART,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -101,12 +102,14 @@ export class TelegramChannel implements MessageChannel {
     await this.bot.start({
       onStart: async (botInfo) => {
         logger.info({ username: botInfo.username }, 'Telegram bot started');
-        const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        for (const chatId of ALLOWED_CHAT_IDS) {
-          try {
-            await this.bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
-          } catch {
-            // Best effort
+        if (NOTIFY_ON_RESTART) {
+          const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          for (const chatId of ALLOWED_CHAT_IDS) {
+            try {
+              await this.bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
+            } catch {
+              // Best effort
+            }
           }
         }
       },

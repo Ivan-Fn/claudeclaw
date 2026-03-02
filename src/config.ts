@@ -49,6 +49,9 @@ export const SCHEDULER_POLL_MS = 60_000;
 // Set to override where Claude Code sessions run (e.g., a different project root)
 export const AGENT_CWD = env['AGENT_CWD']?.trim() || PROJECT_ROOT;
 
+// Send restart notification to all allowed chats (default: true)
+export const NOTIFY_ON_RESTART = (env['NOTIFY_ON_RESTART'] ?? 'true') !== 'false';
+
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 
