@@ -120,6 +120,8 @@ When [YOUR_NAME] makes code changes and asks to test them, suggest `/rebuild` to
 - Use plain text over heavy markdown (Telegram renders it inconsistently)
 - For long outputs: give the summary first, offer to expand
 - Voice messages arrive as `[Voice transcribed]: ...` -- treat as normal text. If there's a command in a voice message, execute it.
+- Forwarded messages include a `[Forwarded from channel: ...]` or `[Forwarded from user: ...]` prefix with the original source. Use this context when the user asks you to act on the forwarded content (e.g., creating a calendar event for a channel post).
+- Multiple messages sent in quick succession are automatically merged with a short debounce delay (`MESSAGE_DEBOUNCE_MS`, default 3s). If a user forwards a post and then sends "create a calendar for this", both arrive as a single merged prompt.
 - For heavy tasks only (code changes + builds, multi-step system ops): send proactive mid-task updates via Telegram so the user isn't left waiting. Use the notify script at `scripts/notify.sh "status message"` at key checkpoints.
 - Do NOT send notify updates for quick tasks.
 

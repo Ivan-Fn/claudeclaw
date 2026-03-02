@@ -1,5 +1,5 @@
 import { logger } from './logger.js';
-import { MAX_MESSAGES_PER_MINUTE } from './config.js';
+import { MAX_MESSAGES_PER_MINUTE, MESSAGE_DEBOUNCE_MS } from './config.js';
 
 // ── Per-Chat Message Queue ─────────────────────────────────────────────
 //
@@ -87,9 +87,65 @@ export function enqueue<T>(
   return next;
 }
 
+// ── Message Debounce Buffer ───────────────────────────────────────────
+//
+// When messages arrive in rapid succession (e.g., forwarded post + instruction),
+// buffer them and merge into a single prompt before sending to Claude.
+
+interface DebounceBuffer {
+  messages: string[];
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const debounceBuffers = new Map<string, DebounceBuffer>();
+
+/**
+ * Buffer a message for debounced processing. If more messages arrive within
+ * MESSAGE_DEBOUNCE_MS, they're merged. When the timer fires, processFn is
+ * called with the joined messages via the serial queue.
+ */
+export function enqueueDebounced(
+  chatId: string,
+  message: string,
+  processFn: (merged: string) => Promise<void>,
+): void {
+  recordMessage(chatId);
+
+  const existing = debounceBuffers.get(chatId);
+
+  if (existing) {
+    existing.messages.push(message);
+    clearTimeout(existing.timer);
+    existing.timer = setTimeout(() => flushDebounce(chatId, processFn), MESSAGE_DEBOUNCE_MS);
+    logger.debug({ chatId, buffered: existing.messages.length }, 'Message buffered (debounce)');
+  } else {
+    const timer = setTimeout(() => flushDebounce(chatId, processFn), MESSAGE_DEBOUNCE_MS);
+    debounceBuffers.set(chatId, { messages: [message], timer });
+    logger.debug({ chatId }, 'Debounce timer started');
+  }
+}
+
+function flushDebounce(
+  chatId: string,
+  processFn: (merged: string) => Promise<void>,
+): void {
+  const buffer = debounceBuffers.get(chatId);
+  if (!buffer) return;
+  debounceBuffers.delete(chatId);
+
+  const merged = buffer.messages.join('\n\n');
+  logger.info({ chatId, messageCount: buffer.messages.length }, 'Flushing debounce buffer');
+
+  void enqueue(chatId, () => processFn(merged));
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────
 
 export function clearQueues(): void {
+  for (const buf of debounceBuffers.values()) {
+    clearTimeout(buf.timer);
+  }
+  debounceBuffers.clear();
   chatQueues.clear();
   rateLimitWindows.clear();
   activeConcurrent = 0;

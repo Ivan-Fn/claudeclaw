@@ -77,10 +77,73 @@ export function renameOgaToOgg(filePath: string): string {
   return filePath;
 }
 
+// ── Forward Origin ────────────────────────────────────────────────────
+//
+// Extract metadata from forwarded messages so Claude knows where the
+// content originally came from (channel name, user, etc.).
+
+interface MessageOrigin {
+  type: string;
+  date?: number;
+  sender_user?: { first_name: string; last_name?: string; username?: string };
+  sender_user_name?: string;
+  sender_chat?: { title?: string; username?: string; type?: string };
+  chat?: { title?: string; username?: string; type?: string };
+  message_id?: number;
+  author_signature?: string;
+}
+
+export function buildForwardPrefix(forwardOrigin: MessageOrigin | undefined): string {
+  if (!forwardOrigin) return '';
+
+  const parts: string[] = [];
+
+  switch (forwardOrigin.type) {
+    case 'channel': {
+      const ch = forwardOrigin.chat;
+      const name = ch?.title ?? 'unknown channel';
+      const handle = ch?.username ? ` (@${ch.username})` : '';
+      parts.push(`[Forwarded from channel: ${name}${handle}]`);
+      if (forwardOrigin.author_signature) {
+        parts.push(`Author: ${forwardOrigin.author_signature}`);
+      }
+      break;
+    }
+    case 'chat': {
+      const ch = forwardOrigin.sender_chat;
+      const name = ch?.title ?? 'unknown chat';
+      const handle = ch?.username ? ` (@${ch.username})` : '';
+      parts.push(`[Forwarded from chat: ${name}${handle}]`);
+      if (forwardOrigin.author_signature) {
+        parts.push(`Author: ${forwardOrigin.author_signature}`);
+      }
+      break;
+    }
+    case 'user': {
+      const u = forwardOrigin.sender_user;
+      const name = u
+        ? [u.first_name, u.last_name].filter(Boolean).join(' ')
+        : 'unknown user';
+      const handle = u?.username ? ` (@${u.username})` : '';
+      parts.push(`[Forwarded from user: ${name}${handle}]`);
+      break;
+    }
+    case 'hidden_user': {
+      const name = forwardOrigin.sender_user_name ?? 'unknown';
+      parts.push(`[Forwarded from: ${name}]`);
+      break;
+    }
+    default:
+      parts.push(`[Forwarded message]`);
+  }
+
+  return parts.join('\n') + '\n';
+}
+
 // ── Prompt Builders ────────────────────────────────────────────────────
 
-export function buildPhotoMessage(caption: string | undefined, localPath: string): string {
-  const parts = ['[User sent a photo]'];
+export function buildPhotoMessage(caption: string | undefined, localPath: string, forwardPrefix = ''): string {
+  const parts = [`${forwardPrefix}[User sent a photo]`];
   if (caption) parts.push(`Caption: ${caption}`);
   parts.push(`Saved to: ${localPath}`);
   return parts.join('\n');
@@ -90,8 +153,9 @@ export function buildDocumentMessage(
   fileName: string | undefined,
   caption: string | undefined,
   localPath: string,
+  forwardPrefix = '',
 ): string {
-  const parts = [`[User sent a document: ${fileName ?? 'unknown'}]`];
+  const parts = [`${forwardPrefix}[User sent a document: ${fileName ?? 'unknown'}]`];
   if (caption) parts.push(`Caption: ${caption}`);
   parts.push(`Saved to: ${localPath}`);
   return parts.join('\n');

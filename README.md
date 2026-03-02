@@ -9,8 +9,12 @@ A Telegram bot that bridges Claude Code to your phone. Send messages, voice note
 - **Telegram as your interface** -- chat with Claude Code from anywhere via your phone
 - **Voice support** -- send voice messages, get voice responses back (Groq Whisper + ElevenLabs)
 - **Photo & file handling** -- send images and documents for Claude to analyze
+- **Message debounce** -- buffers rapid messages (e.g., forward + instruction) and merges them into a single prompt
+- **Forward origin tracking** -- forwarded messages include metadata about the original sender/channel
+- **Google Workspace MCP** -- direct read/write access to Gmail and Google Calendar via MCP
+- **Personal CRM** -- track contacts, interactions, and get pre-meeting briefings
 - **n8n integrations** -- connect Gmail, Google Calendar, Notion tasks, or any webhook
-- **Scheduled tasks** -- set up cron-based recurring prompts
+- **Scheduled tasks** -- set up cron-based recurring prompts with morning briefings
 - **Cross-session memory** -- context persists across conversations via SQLite
 - **Session management** -- `/newchat`, `/respin`, `/cancel`, `/cost` commands
 - **Bot menu commands** -- all commands registered as Telegram suggestions
@@ -21,6 +25,11 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 
 | Feature | This project | Original |
 |---------|:---:|:---:|
+| Message debounce (merges rapid messages) | Yes | -- |
+| Forward origin metadata (channel/user info) | Yes | -- |
+| Google Workspace MCP (read/write Gmail + Calendar) | Yes | -- |
+| Personal CRM with contact tracking | Yes | -- |
+| Morning briefing with CRM-enriched digests | Yes | -- |
 | n8n webhook integrations (Gmail, Calendar, Notion) | Yes | -- |
 | Telegram bot menu (commands as suggestions) | Yes | -- |
 | API cost tracking (`/cost` with daily/weekly/monthly) | Yes | -- |
@@ -29,7 +38,7 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 | Per-chat message queue with rate limiting | Yes | -- |
 | Context window monitoring (warns at 75%) | Yes | -- |
 | Token usage tracking per turn | Yes | -- |
-| Comprehensive test suite (127 tests) | Yes | -- |
+| Comprehensive test suite (148 tests) | Yes | -- |
 | SSRF prevention on webhook paths | Yes | -- |
 | PID lock (prevents duplicate instances) | Yes | -- |
 | Interactive setup wizard (`npm run setup`) | Yes | -- |
@@ -104,9 +113,9 @@ src/
   db.ts           # SQLite schema, conversation log, sessions
   memory.ts       # Cross-session memory with salience decay
   scheduler.ts    # Cron-based task scheduling
-  queue.ts        # Per-chat sequential message queue
+  queue.ts        # Per-chat message queue with debounce buffer
   voice.ts        # Groq STT + ElevenLabs TTS
-  media.ts        # Photo/file upload handling
+  media.ts        # Photo/file upload handling, forward origin extraction
   config.ts       # Path constants
   env.ts          # Environment variable validation
   logger.ts       # Pino structured logging
@@ -119,7 +128,8 @@ scripts/
   export-context.sh  # Export conversation context to markdown
 .claude/skills/
   generate-image.md     # Image generation skill (Gemini)
-  gemini-api-dev/       # Gemini API reference skill
+  crm.md                # Personal CRM (contacts, interactions, briefings)
+  morning-briefing.md   # Daily digest with CRM enrichment
 ```
 
 ## Personalizing

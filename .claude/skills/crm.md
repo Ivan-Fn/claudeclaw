@@ -159,13 +159,18 @@ When the user asks "Show me Alex's photo" or "What does Sarah look like":
 
 ### Daily Contact Scan (Scheduled Task)
 
-When running the daily contact scan:
-1. Call n8n webhook for recent emails:
-   curl -s -X POST http://localhost:5678/webhook/gmail \
+When running the daily contact scan, prefer Google Workspace MCP tools when available.
+Fall back to n8n webhooks only if MCP tools are unavailable.
+
+**Using MCP (preferred):**
+1. Use `search_gmail_messages` to get recent emails
+2. Use `get_events` to get today's calendar events
+
+**Using n8n (fallback):**
+1. curl -s -X POST http://localhost:5678/webhook/gmail \
      -H "Content-Type: application/json" \
      -d '{"action":"unread"}'
-2. Call n8n webhook for today's calendar:
-   curl -s -X POST http://localhost:5678/webhook/calendar \
+2. curl -s -X POST http://localhost:5678/webhook/calendar \
      -H "Content-Type: application/json" \
      -d '{}'
 3. Parse email senders and calendar attendees
@@ -177,7 +182,7 @@ When running the daily contact scan:
 ### Pre-Meeting Briefing (Scheduled Task)
 
 When running the pre-meeting briefing:
-1. Get today's calendar events via n8n
+1. Get today's calendar events (prefer MCP `get_events`, fall back to n8n)
 2. For each event with external attendees:
    a. Search contacts DB for each attendee by email
    b. Get their interaction history

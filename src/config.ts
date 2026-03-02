@@ -27,6 +27,9 @@ export const DB_PATH = join(STORE_DIR, 'master-agent.db');
 export const UPLOADS_DIR = join(PROJECT_ROOT, 'workspace', 'uploads');
 export const PID_FILE = join(STORE_DIR, 'master-agent.pid');
 
+// Message debounce: buffer rapid messages before sending to Claude
+export const MESSAGE_DEBOUNCE_MS = Number(env['MESSAGE_DEBOUNCE_MS']) || 3_000;
+
 // Timeouts & limits
 export const MAX_MESSAGE_LENGTH = 4096;
 export const TYPING_REFRESH_MS = 4_000;

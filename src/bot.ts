@@ -9,7 +9,7 @@ import {
 } from './config.js';
 import { logger } from './logger.js';
 import { runAgent, type UsageInfo } from './agent.js';
-import { enqueue, isRateLimited } from './queue.js';
+import { enqueue, enqueueDebounced, isRateLimited } from './queue.js';
 import { buildMemoryContext, saveConversationTurn, getMemoryStats } from './memory.js';
 import {
   getSession,
@@ -21,7 +21,7 @@ import {
   getCostSummary,
 } from './db.js';
 import { voiceCapabilities, transcribeAudio, synthesizeSpeech } from './voice.js';
-import { downloadTelegramFile, renameOgaToOgg, buildPhotoMessage, buildDocumentMessage } from './media.js';
+import { downloadTelegramFile, renameOgaToOgg, buildPhotoMessage, buildDocumentMessage, buildForwardPrefix } from './media.js';
 import {
   scheduleNewTask,
   formatTaskList,
@@ -401,25 +401,25 @@ export function createBot(): Bot {
       return;
     }
 
-    await enqueue(chatId, async () => {
-      try {
-        const filePath = await downloadTelegramFile(ctx.message.voice.file_id);
-        const oggPath = renameOgaToOgg(filePath);
-        const transcript = await transcribeAudio(oggPath);
+    // Transcribe immediately (during debounce window), then buffer the text
+    try {
+      const filePath = await downloadTelegramFile(ctx.message.voice.file_id);
+      const oggPath = renameOgaToOgg(filePath);
+      const transcript = await transcribeAudio(oggPath);
 
-        if (!transcript.trim()) {
-          await ctx.reply('Could not transcribe the voice message.');
-          return;
-        }
-
-        // Check if user explicitly wants voice response back
-        const wantsVoiceBack = VOICE_REPLY_PATTERN.test(transcript);
-        await processMessage(ctx, chatId, `[Voice transcribed]: ${transcript}`, wantsVoiceBack);
-      } catch (err) {
-        logger.error({ err, chatId }, 'Voice processing failed');
-        await ctx.reply('Failed to process voice message. Please try sending text instead.');
+      if (!transcript.trim()) {
+        await ctx.reply('Could not transcribe the voice message.');
+        return;
       }
-    });
+
+      const wantsVoiceBack = VOICE_REPLY_PATTERN.test(transcript);
+      const fwd = buildForwardPrefix(ctx.message.forward_origin as Parameters<typeof buildForwardPrefix>[0]);
+      const message = `${fwd}[Voice transcribed]: ${transcript}`;
+      enqueueDebounced(chatId, message, (merged) => processMessage(ctx, chatId, merged, wantsVoiceBack));
+    } catch (err) {
+      logger.error({ err, chatId }, 'Voice processing failed');
+      await ctx.reply('Failed to process voice message. Please try sending text instead.');
+    }
   });
 
   // ── Photo Handler ─────────────────────────────────────────────────
@@ -432,18 +432,18 @@ export function createBot(): Bot {
       return;
     }
 
-    await enqueue(chatId, async () => {
-      try {
-        const photos = ctx.message.photo;
-        const largest = photos[photos.length - 1]!;
-        const localPath = await downloadTelegramFile(largest.file_id);
-        const message = buildPhotoMessage(ctx.message.caption, localPath);
-        await processMessage(ctx, chatId, message);
-      } catch (err) {
-        logger.error({ err, chatId }, 'Photo processing failed');
-        await ctx.reply('Failed to process photo.');
-      }
-    });
+    // Download photo immediately (during debounce window), then buffer
+    try {
+      const photos = ctx.message.photo;
+      const largest = photos[photos.length - 1]!;
+      const localPath = await downloadTelegramFile(largest.file_id);
+      const fwd = buildForwardPrefix(ctx.message.forward_origin as Parameters<typeof buildForwardPrefix>[0]);
+      const message = buildPhotoMessage(ctx.message.caption, localPath, fwd);
+      enqueueDebounced(chatId, message, (merged) => processMessage(ctx, chatId, merged));
+    } catch (err) {
+      logger.error({ err, chatId }, 'Photo processing failed');
+      await ctx.reply('Failed to process photo.');
+    }
   });
 
   // ── Document Handler ──────────────────────────────────────────────
@@ -456,31 +456,32 @@ export function createBot(): Bot {
       return;
     }
 
-    await enqueue(chatId, async () => {
-      try {
-        const doc = ctx.message.document;
-        const localPath = await downloadTelegramFile(doc.file_id);
-        const message = buildDocumentMessage(doc.file_name, ctx.message.caption, localPath);
-        await processMessage(ctx, chatId, message);
-      } catch (err) {
-        logger.error({ err, chatId }, 'Document processing failed');
-        await ctx.reply('Failed to process document.');
-      }
-    });
+    // Download document immediately (during debounce window), then buffer
+    try {
+      const doc = ctx.message.document;
+      const localPath = await downloadTelegramFile(doc.file_id);
+      const fwd = buildForwardPrefix(ctx.message.forward_origin as Parameters<typeof buildForwardPrefix>[0]);
+      const message = buildDocumentMessage(doc.file_name, ctx.message.caption, localPath, fwd);
+      enqueueDebounced(chatId, message, (merged) => processMessage(ctx, chatId, merged));
+    } catch (err) {
+      logger.error({ err, chatId }, 'Document processing failed');
+      await ctx.reply('Failed to process document.');
+    }
   });
 
   // ── Text Handler (catch-all) ──────────────────────────────────────
 
   bot.on('message:text', async (ctx) => {
     const chatId = ctx.chat.id.toString();
-    const text = ctx.message.text;
+    const fwd = buildForwardPrefix(ctx.message.forward_origin as Parameters<typeof buildForwardPrefix>[0]);
+    const text = fwd + ctx.message.text;
 
     if (isRateLimited(chatId)) {
       await ctx.reply('Rate limit exceeded. Please wait a moment.');
       return;
     }
 
-    await enqueue(chatId, () => processMessage(ctx, chatId, text));
+    enqueueDebounced(chatId, text, (merged) => processMessage(ctx, chatId, merged));
   });
 
   // ── Error Handler ─────────────────────────────────────────────────
