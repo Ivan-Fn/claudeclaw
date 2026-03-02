@@ -1,14 +1,17 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { PID_FILE, ALLOWED_CHAT_IDS } from './config.js';
+import { PID_FILE, TELEGRAM_BOT_TOKEN } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
-import { createBot, formatForTelegram, escapeHtml } from './bot.js';
+import { escapeHtml } from './channels/format-telegram.js';
 import { initScheduler, stopScheduler, type TaskExecutor } from './scheduler.js';
 import { runAgent } from './agent.js';
 import { enqueue } from './queue.js';
 import { runDecaySweep } from './memory.js';
 import { cleanupOldUploads } from './media.js';
+import { TelegramChannel } from './channels/telegram.js';
+import { channelFromComposite, rawChatId } from './channels/types.js';
+import type { MessageChannel } from './channels/types.js';
 
 // ── PID Lock ───────────────────────────────────────────────────────────
 
@@ -51,14 +54,23 @@ function releaseLock(): void {
 
 // ── Scheduled Task Executor ────────────────────────────────────────────
 
-function createTaskExecutor(sendMessage: (chatId: string, text: string) => Promise<void>): TaskExecutor {
+function createTaskExecutor(channels: Map<string, MessageChannel>): TaskExecutor {
   return async (task) => {
-    // Use a dedicated namespace to avoid colliding with user chat queues
     const queueId = `__task__${task.chat_id}`;
     const result = await enqueue(queueId, () => runAgent({ message: task.prompt }));
-    const escapedPrompt = escapeHtml(task.prompt.slice(0, 80));
-    const formattedResult = formatForTelegram(result.text);
-    await sendMessage(task.chat_id, `<b>Scheduled Task:</b> ${escapedPrompt}\n\n${formattedResult}`);
+
+    // Route output to the correct channel based on the composite ID
+    const channelId = channelFromComposite(task.chat_id);
+    const chatId = rawChatId(task.chat_id);
+    const channel = channelId ? channels.get(channelId) : undefined;
+
+    if (channel) {
+      const escapedPrompt = escapeHtml(task.prompt.slice(0, 80));
+      await channel.sendFormatted(chatId, `Scheduled Task: ${escapedPrompt}\n\n${result.text}`);
+    } else {
+      logger.warn({ chatId: task.chat_id }, 'No channel found for scheduled task output');
+    }
+
     return result.text;
   };
 }
@@ -80,45 +92,30 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
 
-  // 3. Create and start bot
-  const bot = createBot();
+  // 3. Create channels based on available configuration
+  const channels = new Map<string, MessageChannel>();
 
-  // 3a. Register bot menu commands with Telegram
-  try {
-    await bot.api.setMyCommands([
-      { command: 'newchat', description: 'Clear session, start fresh' },
-      { command: 'respin', description: 'New session with recent context' },
-      { command: 'cancel', description: 'Cancel current request' },
-      { command: 'status', description: 'Bot status and diagnostics' },
-      { command: 'cost', description: 'API cost estimates' },
-      { command: 'voice', description: 'Toggle voice mode on/off' },
-      { command: 'memory', description: 'Show recent memories' },
-      { command: 'gmail', description: 'Email summary (unread/promos)' },
-      { command: 'cal', description: 'Calendar (today/tomorrow/week)' },
-      { command: 'todo', description: 'Notion tasks (list/add)' },
-      { command: 'n8n', description: 'Call any n8n webhook' },
-      { command: 'schedule', description: 'Schedule a cron task' },
-      { command: 'tasks', description: 'List scheduled tasks' },
-      { command: 'deltask', description: 'Delete a scheduled task' },
-      { command: 'pausetask', description: 'Pause a scheduled task' },
-      { command: 'resumetask', description: 'Resume a scheduled task' },
-      { command: 'restart', description: 'Restart the bot process' },
-      { command: 'rebuild', description: 'Git pull + npm install + restart' },
-    ]);
-    logger.info('Bot commands registered with Telegram');
-  } catch (err) {
-    logger.warn({ err }, 'Failed to register bot commands (non-fatal)');
+  let telegram: TelegramChannel | undefined;
+  if (TELEGRAM_BOT_TOKEN) {
+    telegram = new TelegramChannel();
+    channels.set('telegram', telegram);
+    logger.info('Telegram channel configured');
   }
 
-  // 4. Initialize scheduler
-  const sendMessage = async (chatId: string, text: string) => {
-    try {
-      await bot.api.sendMessage(chatId, text, { parse_mode: 'HTML' });
-    } catch (err) {
-      logger.error({ err, chatId }, 'Failed to send scheduled task result');
-    }
-  };
-  initScheduler(createTaskExecutor(sendMessage));
+  // Future: Slack channel
+  // if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
+  //   const slack = new SlackChannel();
+  //   channels.set('slack', slack);
+  //   logger.info('Slack channel configured');
+  // }
+
+  if (channels.size === 0) {
+    logger.error('No channels configured. Set TELEGRAM_BOT_TOKEN (and/or SLACK_BOT_TOKEN) in .env');
+    process.exit(1);
+  }
+
+  // 4. Initialize scheduler with multi-channel task executor
+  initScheduler(createTaskExecutor(channels));
 
   // 5. Start maintenance intervals
   const decayInterval = setInterval(() => runDecaySweep(), DECAY_INTERVAL_MS);
@@ -132,10 +129,12 @@ async function main(): Promise<void> {
     clearInterval(cleanupInterval);
     stopScheduler();
 
-    try {
-      await bot.stop();
-    } catch {
-      // Bot may not have started
+    for (const channel of channels.values()) {
+      try {
+        await channel.stop();
+      } catch {
+        // Best effort
+      }
     }
 
     closeDatabase();
@@ -148,25 +147,14 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  // 7. Start bot (blocks until stopped)
+  // 7. Start all channels
+  // Telegram's start() blocks (long-polling), so start it last
   try {
-    await bot.start({
-      onStart: async (botInfo) => {
-        logger.info({ username: botInfo.username }, 'Bot started');
-
-        // Notify owner that bot is back online
-        const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        for (const chatId of ALLOWED_CHAT_IDS) {
-          try {
-            await bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
-          } catch {
-            // Best effort
-          }
-        }
-      },
-    });
+    if (telegram) {
+      await telegram.start();
+    }
   } catch (err) {
-    logger.error({ err }, 'Bot failed to start');
+    logger.error({ err }, 'Channel failed to start');
     releaseLock();
     process.exit(1);
   }

@@ -48,6 +48,7 @@ export function initDatabase(dbPath?: string): Database.Database {
   db.pragma('busy_timeout = 5000');
 
   createSchema(db);
+  runMigrations(db);
 
   // Integrity check on startup
   const integrity = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
@@ -221,6 +222,33 @@ function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_interactions_contact
       ON interactions(contact_id, date DESC);
   `);
+}
+
+// ── Migrations ────────────────────────────────────────────────────────
+//
+// Versioned data migrations. Each migration runs once and is tracked
+// in the schema_migrations table.
+
+function runMigrations(db: Database.Database): void {
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER)');
+
+  const applied = new Set(
+    (db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>)
+      .map(r => r.version),
+  );
+
+  // Migration 1: Namespace all chat_ids with "telegram:" prefix
+  if (!applied.has(1)) {
+    const tables = ['sessions', 'memories', 'conversation_log', 'token_usage', 'scheduled_tasks', 'contacts', 'interactions'];
+    const migrate = db.transaction(() => {
+      for (const table of tables) {
+        db.exec(`UPDATE ${table} SET chat_id = 'telegram:' || chat_id WHERE chat_id NOT LIKE '%:%'`);
+      }
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, unixepoch())').run(1);
+    });
+    migrate();
+    logger.info('Migration 1 applied: namespaced chat_ids with telegram: prefix');
+  }
 }
 
 // ── Sessions ───────────────────────────────────────────────────────────
