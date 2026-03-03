@@ -9,6 +9,7 @@ import { runAgent } from './agent.js';
 import { enqueue } from './queue.js';
 import { runDecaySweep } from './memory.js';
 import { cleanupOldUploads } from './media.js';
+import { checkNewSkills } from './skills-check.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { SlackChannel } from './channels/slack.js';
 import { channelFromComposite, rawChatId } from './channels/types.js';
@@ -92,6 +93,14 @@ async function main(): Promise<void> {
   // 2. Initialize database
   initDatabase();
   logger.info('Database initialized');
+
+  // 2.5. Check for new skills
+  const newSkills = checkNewSkills();
+  if (newSkills.length > 0) {
+    logger.info(
+      `New skills available: ${newSkills.map((s) => s.name).join(', ')}. Run "npm run skills" to manage.`,
+    );
+  }
 
   // 3. Create channels based on available configuration
   const channels = new Map<string, MessageChannel>();

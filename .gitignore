@@ -7,3 +7,5 @@ workspace/
 *.pid
 .DS_Store
 CLAUDE.md
+.claude/skills/
+skills.json

@@ -57,12 +57,28 @@ Available MCP tools (when configured):
 
 All MCP tools require `user_google_email` parameter. Times use RFC3339 format.
 
-## Available Skills (invoke automatically when relevant)
+## Skills
 
-Skills are defined in `.claude/skills/` and loaded automatically. Use them when the conversation calls for it.
+Skills are managed via a catalog system. Active skills are symlinked into `.claude/skills/` and loaded automatically by the SDK.
+
+### Managing skills
+
+```bash
+npm run skills              # List all skills and their status
+npm run skills enable <id>  # Enable a skill
+npm run skills disable <id> # Disable a skill
+npm run skills sync         # Reconcile symlinks after git pull
+```
+
+The `skills-manager` skill is always enabled by default, so the bot can manage its own skills through conversation. On first startup, the bot will ask which skills to enable.
+
+### Available skills
+
+Skills are defined in `skills-catalog/catalog.json`. Run `npm run skills list` to see what's available. Common skills:
 
 | Skill | Triggers |
 |-------|---------|
+| `skills-manager` | manage skills, list skills, enable/disable skills |
 | `generate-image` | draw, generate image, picture, visualize, create illustration |
 | `crm` | contacts, people, CRM, follow-up, pre-meeting briefing |
 | `morning-briefing` | morning digest, daily briefing, what's on today, pre-meeting prep |

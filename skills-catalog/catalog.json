@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "skills-manager",
+      "name": "Skills Manager",
+      "description": "Manage bot skills: list, enable, disable available skills from the catalog",
+      "files": ["skills-manager.md"],
+      "default": true
+    },
+    {
+      "id": "generate-image",
+      "name": "Image Generation",
+      "description": "Generate images via Gemini API and send to Telegram",
+      "files": ["generate-image.md"],
+      "default": true
+    },
+    {
+      "id": "gemini-api-dev",
+      "name": "Gemini API Development",
+      "description": "Reference skill for building applications with Gemini models",
+      "files": ["gemini-api-dev/SKILL.md"],
+      "default": true
+    },
+    {
+      "id": "crm",
+      "name": "Personal CRM",
+      "description": "Contact tracking, interactions, and pre-meeting briefings",
+      "files": ["crm.md"],
+      "default": false
+    },
+    {
+      "id": "morning-briefing",
+      "name": "Morning Briefing",
+      "description": "Daily digest combining email, calendar, and CRM data",
+      "files": ["morning-briefing.md"],
+      "default": false
+    }
+  ]
+}

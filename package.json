@@ -7,6 +7,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "setup": "tsx scripts/setup.ts",
+    "skills": "tsx scripts/skills.ts",
     "status": "tsx scripts/status.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

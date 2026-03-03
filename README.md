@@ -45,6 +45,7 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 | CLI notification script | Yes | -- |
 | Self-management (`/restart`, `/rebuild` without LLM) | Yes | -- |
 | Multi-model subagent routing (Opus/Sonnet/Haiku) | Yes | -- |
+| Skills catalog with selective installation | Yes | -- |
 | Image generation via Gemini API (agent skill) | Yes | -- |
 | WhatsApp integration | -- | Yes |
 | Slack integration | -- | Yes |
@@ -124,13 +125,18 @@ src/
     n8n.ts        # n8n webhook client
 scripts/
   setup.ts        # Interactive setup wizard
+  skills.ts       # Skills management CLI
+  skills-lib.ts   # Skills catalog shared logic
   status.ts       # Health check script
   notify.sh       # Send Telegram messages from CLI
   export-context.sh  # Export conversation context to markdown
-.claude/skills/
-  generate-image.md     # Image generation skill (Gemini)
-  crm.md                # Personal CRM (contacts, interactions, briefings)
-  morning-briefing.md   # Daily digest with CRM enrichment
+skills-catalog/
+  catalog.json          # Skill manifest (source of truth)
+  skills-manager.md     # Skills management skill (default: on)
+  generate-image.md     # Image generation skill (default: on)
+  crm.md                # Personal CRM (default: off)
+  morning-briefing.md   # Daily digest (default: off)
+  gemini-api-dev/SKILL.md  # Gemini API reference (default: on)
 ```
 
 ## Multi-Model Subagent Routing
@@ -143,6 +149,31 @@ The main agent (Opus) automatically delegates routine tasks to a Sonnet subagent
 The main agent decides which model to use based on task complexity. Per-model cost tracking is automatic -- use `/cost` to see the breakdown.
 
 To customize subagent definitions, override via `AGENT_SUBAGENTS` in `.env` (JSON). Set to `{}` to disable routing entirely. See `.env.example` for format.
+
+## Skills Catalog
+
+Skills are optional capabilities defined in `skills-catalog/`. Each bot instance picks which skills to enable. Active skills are symlinked into `.claude/skills/` (which the SDK auto-discovers).
+
+```bash
+npm run skills              # List all skills and their status
+npm run skills enable <id>  # Enable a skill
+npm run skills disable <id> # Disable a skill
+npm run skills sync         # Reconcile symlinks after git pull
+```
+
+On first run, `npm run setup` asks which skills to enable. After `git pull`, `npm run skills sync` detects new skills from upstream.
+
+The `skills-manager` skill is enabled by default, so the bot can manage its own skills through conversation -- just ask it to list, enable, or disable skills.
+
+### For fork maintainers
+
+Skills state is stored in `skills.json` (gitignored), so your selections never conflict with upstream. After pulling updates:
+
+```bash
+git pull upstream main
+npm run skills sync    # Detects new skills, recreates symlinks
+npm run build
+```
 
 ## Personalizing
 

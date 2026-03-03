@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
+import { readCatalog, readState, writeState, syncSkills, getPaths } from './skills-lib.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -61,7 +62,53 @@ async function main() {
     console.log('⚠️  Claude Code not found. Install from https://claude.ai/download');
   }
 
-  // Step 3: Build
+  // Step 3: Skills configuration
+  const { stateFile } = getPaths(PROJECT_ROOT);
+  if (existsSync(stateFile)) {
+    console.log('✅ skills.json exists, syncing...');
+    const result = syncSkills(PROJECT_ROOT);
+    if (result.newSkills.length > 0) {
+      console.log('\nNew skills available:');
+      for (const s of result.newSkills) {
+        console.log(`  ${s.name} (${s.id}) - ${s.description}`);
+      }
+      console.log('  Run: npm run skills enable <id>');
+    }
+  } else {
+    console.log('\nConfiguring skills...\n');
+    const catalog = readCatalog(PROJECT_ROOT);
+    const defaults = catalog.skills.filter((s) => s.default);
+    const optional = catalog.skills.filter((s) => !s.default);
+
+    console.log('Default skills (will be enabled):');
+    for (const s of defaults) {
+      console.log(`  - ${s.name} (${s.id})`);
+    }
+    if (optional.length > 0) {
+      console.log('Optional skills (disabled by default):');
+      for (const s of optional) {
+        console.log(`  - ${s.name} (${s.id}) - ${s.description}`);
+      }
+    }
+
+    const accept = await ask('\nAccept defaults? (Y/n): ');
+    if (accept.toLowerCase() === 'n') {
+      const enabled: string[] = [];
+      const disabled: string[] = [];
+      for (const s of catalog.skills) {
+        const defaultYes = s.default;
+        const yn = await ask(`  Enable "${s.name}"? (${defaultYes ? 'Y/n' : 'y/N'}): `);
+        const isYes = defaultYes ? yn.toLowerCase() !== 'n' : yn.toLowerCase() === 'y';
+        (isYes ? enabled : disabled).push(s.id);
+      }
+      writeState(PROJECT_ROOT, { enabled, disabled });
+    }
+
+    const result = syncSkills(PROJECT_ROOT);
+    console.log(`✅ Skills configured (${result.created.length} enabled)`);
+  }
+
+  // Step 4: Build
   console.log('\nBuilding project...');
   try {
     execSync('npm run build', { cwd: PROJECT_ROOT, stdio: 'inherit' });
@@ -72,7 +119,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 4: launchd setup
+  // Step 5: launchd setup
   const setupLaunchd = await ask('\nSet up launchd auto-start? (y/N): ');
   if (setupLaunchd.toLowerCase() === 'y') {
     const nodePath = execSync('which node', { encoding: 'utf8' }).trim();
