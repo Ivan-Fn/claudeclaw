@@ -179,6 +179,7 @@ export async function processMessage(
         result.usage.lastCallCacheRead,
         result.usage.totalCostUsd,
         result.usage.didCompact,
+        result.model,
       );
 
       const warning = checkContextWarning(cid, result.usage);

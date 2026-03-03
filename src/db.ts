@@ -150,6 +150,7 @@ function createSchema(db: Database.Database): void {
       cache_read INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0,
       did_compact INTEGER NOT NULL DEFAULT 0,
+      model TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
@@ -259,6 +260,20 @@ function runMigrations(db: Database.Database): void {
     });
     migrate();
     logger.info('Migration 1 applied: namespaced chat_ids with telegram: prefix');
+  }
+
+  // Migration 2: Add model column to token_usage for per-model analytics
+  if (!applied.has(2)) {
+    const migrate = db.transaction(() => {
+      // Column may already exist if createSchema() ran on a fresh DB
+      const cols = db.prepare("PRAGMA table_info('token_usage')").all() as Array<{ name: string }>;
+      if (!cols.some(c => c.name === 'model')) {
+        db.exec('ALTER TABLE token_usage ADD COLUMN model TEXT');
+      }
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, unixepoch())').run(2);
+    });
+    migrate();
+    logger.info('Migration 2 applied: added model column to token_usage');
   }
 }
 
@@ -621,13 +636,14 @@ export function saveTokenUsage(
   cacheRead: number,
   costUsd: number,
   didCompact: boolean,
+  model?: string,
 ): void {
   getDb()
     .prepare(
-      `INSERT INTO token_usage (chat_id, session_id, input_tokens, output_tokens, cache_read, cost_usd, did_compact)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO token_usage (chat_id, session_id, input_tokens, output_tokens, cache_read, cost_usd, did_compact, model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(chatId, sessionId ?? null, inputTokens, outputTokens, cacheRead, costUsd, didCompact ? 1 : 0);
+    .run(chatId, sessionId ?? null, inputTokens, outputTokens, cacheRead, costUsd, didCompact ? 1 : 0, model ?? null);
 }
 
 export function getSessionTokenUsage(sessionId: string): SessionTokenSummary | null {
@@ -697,4 +713,26 @@ export function getCostSummary(chatId: string, sinceUnix: number): CostPeriodSum
     .get(chatId, sinceUnix) as CostPeriodSummary;
 
   return row;
+}
+
+export interface ModelCostSummary {
+  model: string | null;
+  turns: number;
+  totalCostUsd: number;
+}
+
+/** Get cost breakdown by model for a chat within a unix-timestamp range. */
+export function getCostByModel(chatId: string, sinceUnix: number): ModelCostSummary[] {
+  return getDb()
+    .prepare(
+      `SELECT
+         model,
+         COUNT(*)                       as turns,
+         COALESCE(SUM(cost_usd), 0)    as totalCostUsd
+       FROM token_usage
+       WHERE chat_id = ? AND created_at >= ?
+       GROUP BY model
+       ORDER BY totalCostUsd DESC`,
+    )
+    .all(chatId, sinceUnix) as ModelCostSummary[];
 }

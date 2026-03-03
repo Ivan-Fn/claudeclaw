@@ -1,5 +1,5 @@
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -48,6 +48,8 @@ export interface UsageInfo {
 export interface AgentResult {
   text: string;
   sessionId: string | undefined;
+  /** Model reported by the SDK init event (e.g., 'claude-opus-4-6') */
+  model: string | undefined;
   costUsd: number;
   durationMs: number;
   numTurns: number;
@@ -76,6 +78,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     return {
       text: costError,
       sessionId,
+      model: undefined,
       costUsd: 0,
       durationMs: 0,
       numTurns: 0,
@@ -93,6 +96,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       return {
         text: 'Request was cancelled.',
         sessionId,
+        model: undefined,
         costUsd: 0,
         durationMs: 0,
         numTurns: 0,
@@ -107,6 +111,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const timeout = setTimeout(() => abortController.abort(), AGENT_TIMEOUT_MS);
 
   let resolvedSessionId: string | undefined = sessionId;
+  let resolvedModel: string | undefined;
   let resultText = '';
   let costUsd = 0;
   let numTurns = 0;
@@ -151,6 +156,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     const mcpOpts = Object.keys(AGENT_MCP_SERVERS).length > 0
       ? { mcpServers: AGENT_MCP_SERVERS }
       : {};
+    const modelOpts = AGENT_MODEL ? { model: AGENT_MODEL } : {};
+    const agentDefsOpts = Object.keys(AGENT_SUBAGENTS).length > 0
+      ? { agents: AGENT_SUBAGENTS }
+      : {};
 
     const q = query({
       prompt: message,
@@ -158,6 +167,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         cwd: AGENT_CWD,
         ...resumeOpts,
         ...mcpOpts,
+        ...modelOpts,
+        ...agentDefsOpts,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: SETTINGS_SOURCES,
@@ -173,6 +184,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
       handleMessage(msg, {
         setSessionId: (id) => { resolvedSessionId = id; },
+        setModel: (m) => { resolvedModel = m; },
         setResult: (text, cost, turns) => {
           resultText = text;
           costUsd = cost;
@@ -211,6 +223,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
   logger.info({
     sessionId: resolvedSessionId,
+    model: resolvedModel,
     costUsd,
     numTurns,
     durationMs,
@@ -225,6 +238,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const result: AgentResult = {
     text: resultText || 'Agent finished without producing a response. Send "continue" to resume, or try rephrasing your request.',
     sessionId: resolvedSessionId,
+    model: resolvedModel,
     costUsd,
     durationMs,
     numTurns,
@@ -238,6 +252,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
 interface MessageHandlers {
   setSessionId: (id: string) => void;
+  setModel: (model: string) => void;
   setResult: (text: string, cost: number, turns: number) => void;
   setError: (error: string) => void;
   onCompact: (preTokens: number | null) => void;
@@ -258,6 +273,7 @@ function handleMessage(msg: SDKMessage, handlers: MessageHandlers, usageState: U
     case 'system':
       if (msg.subtype === 'init') {
         handlers.setSessionId(msg.session_id);
+        handlers.setModel(msg.model);
         logger.debug({
           sessionId: msg.session_id,
           model: msg.model,

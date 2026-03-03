@@ -44,6 +44,7 @@ This project shares the core idea with [earlyaidopters/claudeclaw](https://githu
 | Interactive setup wizard (`npm run setup`) | Yes | -- |
 | CLI notification script | Yes | -- |
 | Self-management (`/restart`, `/rebuild` without LLM) | Yes | -- |
+| Multi-model subagent routing (Opus/Sonnet/Haiku) | Yes | -- |
 | Image generation via Gemini API (agent skill) | Yes | -- |
 | WhatsApp integration | -- | Yes |
 | Slack integration | -- | Yes |
@@ -131,6 +132,17 @@ scripts/
   crm.md                # Personal CRM (contacts, interactions, briefings)
   morning-briefing.md   # Daily digest with CRM enrichment
 ```
+
+## Multi-Model Subagent Routing
+
+The main agent (Opus) automatically delegates routine tasks to a Sonnet subagent to save cost and tokens. No configuration needed -- it works out of the box.
+
+- **Routine tasks** (email, calendar, Q&A, simple edits) -- delegated to Sonnet (~5x cheaper)
+- **Complex tasks** (multi-file code, debugging, architecture) -- handled directly by Opus
+
+The main agent decides which model to use based on task complexity. Per-model cost tracking is automatic -- use `/cost` to see the breakdown.
+
+To customize subagent definitions, override via `AGENT_SUBAGENTS` in `.env` (JSON). Set to `{}` to disable routing entirely. See `.env.example` for format.
 
 ## Personalizing
 

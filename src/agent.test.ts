@@ -17,6 +17,8 @@ vi.mock('./config.js', () => ({
   AGENT_FORWARD_ENV: [],
   BOT_START_MESSAGE: '',
   AGENT_MCP_SERVERS: {},
+  AGENT_MODEL: '',
+  AGENT_SUBAGENTS: {},
 }));
 
 // Mock env to avoid reading .env file
@@ -77,6 +79,7 @@ describe('runAgent', () => {
 
     expect(result.text).toBe('Hello from Claude');
     expect(result.sessionId).toBe('sess-123');
+    expect(result.model).toBe('claude-sonnet');
     expect(result.costUsd).toBe(0.005);
     expect(result.numTurns).toBe(2);
     expect(result.error).toBeUndefined();
@@ -244,5 +247,38 @@ describe('runAgent', () => {
     const result = await runAgent({ message: 'test' });
 
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('captures model from init event', async () => {
+    mockQuery.mockReturnValue(createMockMessages([
+      { type: 'system', subtype: 'init', session_id: 's1', model: 'claude-opus-4-6', tools: [] },
+      { type: 'result', subtype: 'success', result: 'OK', total_cost_usd: 0, num_turns: 1 },
+    ]) as ReturnType<typeof query>);
+
+    const result = await runAgent({ message: 'test' });
+
+    expect(result.model).toBe('claude-opus-4-6');
+  });
+
+  it('returns model as undefined when no init event received', async () => {
+    mockQuery.mockReturnValue(createMockMessages([
+      { type: 'result', subtype: 'success', result: 'OK', total_cost_usd: 0, num_turns: 1 },
+    ]) as ReturnType<typeof query>);
+
+    const result = await runAgent({ message: 'test' });
+
+    expect(result.model).toBeUndefined();
+  });
+
+  it('returns model as undefined when cancelled early', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runAgent({
+      message: 'test',
+      abortSignal: controller.signal,
+    });
+
+    expect(result.model).toBeUndefined();
   });
 });

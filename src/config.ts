@@ -93,6 +93,41 @@ export const AGENT_MCP_SERVERS: Record<string, { command: string; args?: string[
   }
 })();
 
+// Main agent model (e.g., 'claude-opus-4-6', 'claude-sonnet-4-6')
+// Leave unset to use the CLI default model.
+export const AGENT_MODEL = env['AGENT_MODEL']?.trim() || '';
+
+// Subagent definitions for multi-model routing.
+// The main agent delegates tasks to subagents running on cheaper/faster models.
+// Defaults are provided below; override via AGENT_SUBAGENTS env var (JSON string).
+export interface SubagentDefinition {
+  description: string;
+  prompt: string;
+  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+  tools?: string[];
+  disallowedTools?: string[];
+  maxTurns?: number;
+}
+
+const DEFAULT_SUBAGENTS: Record<string, SubagentDefinition> = {
+  'general-purpose': {
+    description: 'General-purpose agent for most tasks: checking email, calendar, simple Q&A, web searches, single-file edits, formatting, routine operations, and any task that does not require deep multi-step reasoning or complex multi-file code changes. Use this agent by default unless the task clearly requires complex reasoning.',
+    prompt: 'Execute the task. Be concise and direct.',
+    model: 'sonnet',
+  },
+};
+
+// Set AGENT_SUBAGENTS to override defaults, or '{}' to disable subagents entirely.
+export const AGENT_SUBAGENTS: Record<string, SubagentDefinition> = (() => {
+  const raw = env['AGENT_SUBAGENTS']?.trim();
+  if (!raw) return DEFAULT_SUBAGENTS;
+  try {
+    return JSON.parse(raw) as Record<string, SubagentDefinition>;
+  } catch {
+    return DEFAULT_SUBAGENTS;
+  }
+})();
+
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 
