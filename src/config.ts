@@ -79,6 +79,19 @@ export const AGENT_FORWARD_ENV = (env['AGENT_FORWARD_ENV'] ?? '')
 // Custom /start message (overrides the default "BOT_DISPLAY_NAME online..." greeting)
 export const BOT_START_MESSAGE = env['BOT_START_MESSAGE']?.trim() || '';
 
+// MCP servers to pass directly to the Claude Agent SDK (JSON string)
+// Format: {"server-name": {"command": "...", "args": [...], "env": {...}}}
+// This is the reliable way to make MCP tools available to the agent.
+export const AGENT_MCP_SERVERS: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = (() => {
+  const raw = env['AGENT_MCP_SERVERS']?.trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  } catch {
+    return {};
+  }
+})();
+
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 

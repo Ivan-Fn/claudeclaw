@@ -16,6 +16,7 @@ vi.mock('./config.js', () => ({
   SETTINGS_SOURCES: ['user', 'project'],
   AGENT_FORWARD_ENV: [],
   BOT_START_MESSAGE: '',
+  AGENT_MCP_SERVERS: {},
 }));
 
 // Mock env to avoid reading .env file

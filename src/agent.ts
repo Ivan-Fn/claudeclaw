@@ -1,5 +1,5 @@
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -148,12 +148,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       : { type: 'preset' as const, preset: 'claude_code' as const };
 
     const resumeOpts = sessionId ? { resume: sessionId } : {};
+    const mcpOpts = Object.keys(AGENT_MCP_SERVERS).length > 0
+      ? { mcpServers: AGENT_MCP_SERVERS }
+      : {};
 
     const q = query({
       prompt: message,
       options: {
         cwd: AGENT_CWD,
         ...resumeOpts,
+        ...mcpOpts,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: SETTINGS_SOURCES,
