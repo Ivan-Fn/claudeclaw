@@ -9,6 +9,7 @@ import {
   NOTIFY_ON_RESTART_IDS,
   BOT_DISPLAY_NAME,
   BOT_START_MESSAGE,
+  MAX_RESUME_ATTEMPTS,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -18,6 +19,9 @@ import {
   getRecentConversation,
   getRecentMemories,
   getCostSummary,
+  getActiveRequests,
+  incrementResumeCount,
+  clearActiveRequest,
 } from '../db.js';
 import { getMemoryStats } from '../memory.js';
 import { voiceCapabilities, transcribeAudio, synthesizeSpeech } from '../voice.js';
@@ -110,10 +114,62 @@ export class TelegramChannel implements MessageChannel {
           const notifyIds = NOTIFY_ON_RESTART_IDS.length > 0 ? NOTIFY_ON_RESTART_IDS : ALLOWED_CHAT_IDS;
           for (const chatId of notifyIds) {
             try {
-              await this.bot.api.sendMessage(chatId, `Bot restarted at ${now}`);
+              const cid = compositeId('telegram', chatId);
+              const recent = getRecentConversation(cid, 2);
+              const lastUserMsg = recent.find(t => t.role === 'user');
+              let msg = `Bot restarted at ${now}`;
+              if (lastUserMsg) {
+                const preview = lastUserMsg.content.length > 120
+                  ? lastUserMsg.content.slice(0, 120) + '...'
+                  : lastUserMsg.content;
+                msg += `\nLast topic: ${preview}`;
+              }
+              await this.bot.api.sendMessage(chatId, msg);
             } catch {
               // Best effort
             }
+          }
+        }
+
+        // Auto-resume: check for in-flight requests interrupted by restart
+        if (MAX_RESUME_ATTEMPTS > 0) {
+          const staleRequests = getActiveRequests();
+          for (const req of staleRequests) {
+            if (req.channel_id !== 'telegram') continue;
+
+            const sessionId = getSession(req.chat_id);
+            if (!sessionId) {
+              logger.info({ chatId: req.chat_id }, 'No session for stale active request, clearing');
+              clearActiveRequest(req.chat_id);
+              continue;
+            }
+
+            const resumeCount = incrementResumeCount(req.chat_id);
+            if (resumeCount > MAX_RESUME_ATTEMPTS) {
+              logger.warn({ chatId: req.chat_id, resumeCount }, 'Max resume attempts reached');
+              try {
+                await this.bot.api.sendMessage(
+                  req.raw_chat_id,
+                  `I was working on something when I restarted but couldn't auto-resume after ${MAX_RESUME_ATTEMPTS} attempts. Send "continue" to resume manually.`,
+                );
+              } catch { /* best effort */ }
+              clearActiveRequest(req.chat_id);
+              continue;
+            }
+
+            const preview = req.user_message.length > 80
+              ? req.user_message.slice(0, 80) + '...'
+              : req.user_message;
+            logger.info({ chatId: req.chat_id, resumeCount, preview }, 'Auto-resuming interrupted request');
+
+            try {
+              await this.bot.api.sendMessage(req.raw_chat_id, 'Resuming interrupted task...');
+            } catch { /* best effort */ }
+
+            const cid = req.chat_id;
+            const rawChatId = req.raw_chat_id;
+            const resumeMessage = `The bot restarted while you were working on a task. The user's original request was: "${req.user_message}"\n\nContinue where you left off. Complete the task and report what was done.`;
+            void enqueue(cid, () => processMessage(this, cid, rawChatId, resumeMessage, false, true));
           }
         }
       },

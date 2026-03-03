@@ -23,6 +23,10 @@ import {
   deleteTask,
   pauseTask,
   resumeTask,
+  setActiveRequest,
+  clearActiveRequest,
+  getActiveRequests,
+  incrementResumeCount,
 } from './db.js';
 
 // ── CRM helpers (raw SQL, no exported functions) ─────────────────────────
@@ -695,5 +699,74 @@ describe('interactions', () => {
     expect(history).toHaveLength(2);
     expect(history[0]!.summary).toBe('Recent email');
     expect(history[1]!.summary).toBe('Old meeting');
+  });
+});
+
+// ── Active Requests ───────────────────────────────────────────────────────
+
+describe('active requests', () => {
+  it('returns empty array when no active requests', () => {
+    expect(getActiveRequests()).toEqual([]);
+  });
+
+  it('sets and retrieves an active request', () => {
+    setActiveRequest('telegram:123', 'telegram', '123', 'do something');
+    const requests = getActiveRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.chat_id).toBe('telegram:123');
+    expect(requests[0]!.channel_id).toBe('telegram');
+    expect(requests[0]!.raw_chat_id).toBe('123');
+    expect(requests[0]!.user_message).toBe('do something');
+    expect(requests[0]!.resume_count).toBe(0);
+  });
+
+  it('upserts on conflict and resets resume_count', () => {
+    setActiveRequest('telegram:123', 'telegram', '123', 'first task');
+    incrementResumeCount('telegram:123');
+    incrementResumeCount('telegram:123');
+
+    // Upsert with new message should reset resume_count
+    setActiveRequest('telegram:123', 'telegram', '123', 'second task');
+    const requests = getActiveRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.user_message).toBe('second task');
+    expect(requests[0]!.resume_count).toBe(0);
+  });
+
+  it('truncates long messages to 500 chars', () => {
+    const longMsg = 'x'.repeat(1000);
+    setActiveRequest('telegram:123', 'telegram', '123', longMsg);
+    const requests = getActiveRequests();
+    expect(requests[0]!.user_message).toHaveLength(500);
+  });
+
+  it('clears an active request', () => {
+    setActiveRequest('telegram:123', 'telegram', '123', 'task');
+    clearActiveRequest('telegram:123');
+    expect(getActiveRequests()).toEqual([]);
+  });
+
+  it('clearing a non-existent request is a no-op', () => {
+    clearActiveRequest('telegram:999');
+    expect(getActiveRequests()).toEqual([]);
+  });
+
+  it('increments resume count', () => {
+    setActiveRequest('telegram:123', 'telegram', '123', 'task');
+    expect(incrementResumeCount('telegram:123')).toBe(1);
+    expect(incrementResumeCount('telegram:123')).toBe(2);
+    expect(incrementResumeCount('telegram:123')).toBe(3);
+  });
+
+  it('returns 0 for incrementing non-existent request', () => {
+    expect(incrementResumeCount('telegram:999')).toBe(0);
+  });
+
+  it('tracks multiple active requests across chats', () => {
+    setActiveRequest('telegram:111', 'telegram', '111', 'task A');
+    setActiveRequest('telegram:222', 'telegram', '222', 'task B');
+    setActiveRequest('slack:333', 'slack', '333', 'task C');
+    const requests = getActiveRequests();
+    expect(requests).toHaveLength(3);
   });
 });

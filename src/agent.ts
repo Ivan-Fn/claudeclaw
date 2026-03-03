@@ -223,7 +223,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   trackCost(costUsd);
 
   const result: AgentResult = {
-    text: resultText || 'No response from agent.',
+    text: resultText || 'Agent finished without producing a response. Send "continue" to resume, or try rephrasing your request.',
     sessionId: resolvedSessionId,
     costUsd,
     durationMs,

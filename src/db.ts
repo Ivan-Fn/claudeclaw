@@ -208,6 +208,17 @@ function createSchema(db: Database.Database): void {
         VALUES (new.id, new.name, new.email, new.company, new.role, new.notes);
     END;
 
+    -- ── Active Requests (for auto-resume on restart) ─────────────────
+
+    CREATE TABLE IF NOT EXISTS active_requests (
+      chat_id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      raw_chat_id TEXT NOT NULL,
+      user_message TEXT NOT NULL,
+      started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      resume_count INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS interactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -272,6 +283,61 @@ export function setSession(chatId: string, sessionId: string): void {
 
 export function clearSession(chatId: string): void {
   getDb().prepare('DELETE FROM sessions WHERE chat_id = ?').run(chatId);
+}
+
+// ── Active Requests (auto-resume on restart) ──────────────────────────
+
+export interface ActiveRequest {
+  chat_id: string;
+  channel_id: string;
+  raw_chat_id: string;
+  user_message: string;
+  started_at: number;
+  resume_count: number;
+}
+
+/** Mark a request as in-flight. Called at the start of processMessage. */
+export function setActiveRequest(
+  chatId: string,
+  channelId: string,
+  rawChatId: string,
+  userMessage: string,
+): void {
+  getDb()
+    .prepare(
+      `INSERT INTO active_requests (chat_id, channel_id, raw_chat_id, user_message)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(chat_id) DO UPDATE SET
+         channel_id = excluded.channel_id,
+         raw_chat_id = excluded.raw_chat_id,
+         user_message = excluded.user_message,
+         started_at = unixepoch(),
+         resume_count = 0`,
+    )
+    .run(chatId, channelId, rawChatId, userMessage.slice(0, 500));
+}
+
+/** Clear the in-flight marker. Called when processMessage completes. */
+export function clearActiveRequest(chatId: string): void {
+  getDb().prepare('DELETE FROM active_requests WHERE chat_id = ?').run(chatId);
+}
+
+/** Get all stale in-flight requests (for resume on restart). */
+export function getActiveRequests(): ActiveRequest[] {
+  return getDb()
+    .prepare('SELECT * FROM active_requests')
+    .all() as ActiveRequest[];
+}
+
+/** Increment the resume counter. Returns the new count. */
+export function incrementResumeCount(chatId: string): number {
+  getDb()
+    .prepare('UPDATE active_requests SET resume_count = resume_count + 1 WHERE chat_id = ?')
+    .run(chatId);
+  const row = getDb()
+    .prepare('SELECT resume_count FROM active_requests WHERE chat_id = ?')
+    .get(chatId) as { resume_count: number } | undefined;
+  return row?.resume_count ?? 0;
 }
 
 // ── Memories ───────────────────────────────────────────────────────────

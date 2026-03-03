@@ -18,6 +18,8 @@ import {
   getSession,
   setSession,
   saveTokenUsage,
+  setActiveRequest,
+  clearActiveRequest,
 } from './db.js';
 import { voiceCapabilities, synthesizeSpeech } from './voice.js';
 import type { MessageChannel } from './channels/types.js';
@@ -102,6 +104,9 @@ export async function processMessage(
 ): Promise<void> {
   // 1. Start typing indicator
   const stopTyping = channel.startTyping(rawChatId);
+
+  // Track this request as in-flight (for auto-resume if bot restarts mid-task)
+  setActiveRequest(cid, channel.channelId, rawChatId, userMessage);
 
   // 2. Build memory context
   const memoryContext = buildMemoryContext(cid, userMessage);
@@ -199,6 +204,7 @@ export async function processMessage(
   } finally {
     stopTyping();
     activeAborts.delete(cid);
+    clearActiveRequest(cid);
   }
 }
 

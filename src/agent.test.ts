@@ -218,7 +218,7 @@ describe('runAgent', () => {
 
     const result = await runAgent({ message: 'test' });
 
-    expect(result.text).toBe('No response from agent.');
+    expect(result.text).toBe('Agent finished without producing a response. Send "continue" to resume, or try rephrasing your request.');
   });
 
   it('calls onTyping callback for each message', async () => {
