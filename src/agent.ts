@@ -1,5 +1,7 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS, PROJECT_ROOT } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -64,6 +66,51 @@ export interface RunAgentOptions {
   abortSignal?: AbortSignal;
   /** Extra environment variables passed to the Claude Code subprocess. */
   env?: Record<string, string>;
+}
+
+// ── Bot Config Injection ──────────────────────────────────────────────
+// When AGENT_CWD differs from the bot directory, the Claude SDK can't
+// discover CLAUDE.md or .claude/skills/ (it looks from CWD's project root).
+// We inject them via the system prompt so they're always available.
+
+function loadBotConfigAppend(): string {
+  if (resolve(AGENT_CWD) === resolve(PROJECT_ROOT)) {
+    return CLAUDE_SYSTEM_PROMPT_APPEND;
+  }
+
+  const parts: string[] = [];
+
+  // Inject bot's CLAUDE.md
+  try {
+    parts.push(readFileSync(join(PROJECT_ROOT, 'CLAUDE.md'), 'utf-8'));
+  } catch { /* not found or unreadable -- skip */ }
+
+  // Inject skill files from .claude/skills/
+  const skillsDir = join(PROJECT_ROOT, '.claude', 'skills');
+  try {
+    for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+      try {
+        const entryPath = join(skillsDir, entry.name);
+        if (entry.name.endsWith('.md')) {
+          // Direct .md file (or symlink to one) -- readFileSync follows symlinks
+          parts.push(readFileSync(entryPath, 'utf-8'));
+        } else {
+          // Directory skill (e.g., gemini-api-dev/) -- look for SKILL.md inside
+          parts.push(readFileSync(join(entryPath, 'SKILL.md'), 'utf-8'));
+        }
+      } catch { /* skip unreadable skill */ }
+    }
+  } catch { /* no skills dir -- skip */ }
+
+  if (CLAUDE_SYSTEM_PROMPT_APPEND) {
+    parts.push(CLAUDE_SYSTEM_PROMPT_APPEND);
+  }
+
+  const combined = parts.join('\n\n');
+  if (combined) {
+    logger.info('Injected bot CLAUDE.md and %d skills into system prompt (AGENT_CWD differs from bot dir)', parts.length - (CLAUDE_SYSTEM_PROMPT_APPEND ? 1 : 0));
+  }
+  return combined;
 }
 
 // ── Run Agent ──────────────────────────────────────────────────────────
@@ -148,8 +195,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       Object.assign(sdkEnv, extraEnv);
     }
 
-    const systemPrompt = CLAUDE_SYSTEM_PROMPT_APPEND
-      ? { type: 'preset' as const, preset: 'claude_code' as const, append: CLAUDE_SYSTEM_PROMPT_APPEND }
+    const appendContent = loadBotConfigAppend();
+    const systemPrompt = appendContent
+      ? { type: 'preset' as const, preset: 'claude_code' as const, append: appendContent }
       : { type: 'preset' as const, preset: 'claude_code' as const };
 
     const resumeOpts = sessionId ? { resume: sessionId } : {};
