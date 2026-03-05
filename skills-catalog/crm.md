@@ -1,9 +1,7 @@
 ---
 name: crm
-description: Personal CRM for managing contacts, tracking interactions, and
-  delivering pre-meeting briefings. Use when the user asks about contacts,
-  people, meetings, follow-ups, or when processing scheduled CRM tasks.
-  Also use when user explicitly requests adding a photo to a contact profile.
+description: Personal CRM for managing contacts, tracking interactions, and delivering pre-meeting briefings. Use when the user asks about contacts, people, meetings, follow-ups, or when processing scheduled CRM tasks. Also use when user explicitly requests adding a photo to a contact profile. Trigger on any mention of a person's name in a business context, "who is", "do I know", "add contact", "log meeting", "follow up", or any contact/people-related query. This is the single source of truth for contact data.
+allowed-tools: Bash(sqlite3:*), Bash(curl:*), Bash(mkdir:*), Bash(cp:*), Read, Edit
 ---
 
 ## Personal CRM

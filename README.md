@@ -124,18 +124,20 @@ src/
   integrations/
     n8n.ts        # n8n webhook client
 scripts/
-  setup.ts        # Interactive setup wizard
-  skills.ts       # Skills management CLI
-  skills-lib.ts   # Skills catalog shared logic
-  status.ts       # Health check script
-  notify.sh       # Send Telegram messages from CLI
-  export-context.sh  # Export conversation context to markdown
+  setup.ts              # Interactive setup wizard
+  setup-global-skills.sh # Bootstrap global skills (agent-browser, skill-creator)
+  skills.ts             # Skills management CLI
+  skills-lib.ts         # Skills catalog shared logic
+  status.ts             # Health check script
+  notify.sh             # Send Telegram messages from CLI
+  export-context.sh     # Export conversation context to markdown
 skills-catalog/
   catalog.json          # Skill manifest (source of truth)
   skills-manager.md     # Skills management skill (default: on)
   generate-image.md     # Image generation skill (default: on)
   crm.md                # Personal CRM (default: off)
   morning-briefing.md   # Daily digest (default: off)
+  obsidian-tasks.md     # Obsidian vault task management (default: off)
   gemini-api-dev/SKILL.md  # Gemini API reference (default: on)
 ```
 
@@ -150,9 +152,13 @@ The main agent decides which model to use based on task complexity. Per-model co
 
 To customize subagent definitions, override via `AGENT_SUBAGENTS` in `.env` (JSON). Set to `{}` to disable routing entirely. See `.env.example` for format.
 
-## Skills Catalog
+## Skills
 
-Skills are optional capabilities defined in `skills-catalog/`. Each bot instance picks which skills to enable. Active skills are symlinked into `.claude/skills/` (which the SDK auto-discovers).
+Skills follow the [Agent Skills](https://agentskills.io) open standard (Skills 2.0 format with `allowed-tools` and pushy descriptions).
+
+### Two-tier system
+
+**Repo skills** (`skills-catalog/`) -- bot-specific, committed to git. Managed via `npm run skills`:
 
 ```bash
 npm run skills              # List all skills and their status
@@ -161,9 +167,20 @@ npm run skills disable <id> # Disable a skill
 npm run skills sync         # Reconcile symlinks after git pull
 ```
 
-On first run, `npm run setup` asks which skills to enable. After `git pull`, `npm run skills sync` detects new skills from upstream.
+**Global skills** (`~/.claude/skills/`) -- machine-wide, installed from community repos. Bootstrapped automatically during setup:
 
-The `skills-manager` skill is enabled by default, so the bot can manage its own skills through conversation -- just ask it to list, enable, or disable skills.
+```bash
+npm run setup:skills        # Install global skills (agent-browser, skill-creator)
+```
+
+This installs:
+- **[agent-browser](https://github.com/vercel-labs/agent-browser)** -- headless browser automation CLI (Vercel Labs)
+- **[skill-creator](https://github.com/anthropics/skills)** -- create, test, and optimize skills with evals (Anthropic)
+- **[dogfood](https://github.com/vercel-labs/agent-browser)** -- QA/exploratory testing (Vercel Labs)
+
+### First run
+
+`npm run setup` handles everything: it bootstraps global skills (step 3), then asks which repo skills to enable (step 4). The `skills-manager` skill is enabled by default, so the bot can manage its own skills through conversation.
 
 ### For fork maintainers
 

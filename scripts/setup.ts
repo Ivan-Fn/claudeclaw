@@ -62,7 +62,15 @@ async function main() {
     console.log('⚠️  Claude Code not found. Install from https://claude.ai/download');
   }
 
-  // Step 3: Skills configuration
+  // Step 3: Global skills (agent-browser, skill-creator)
+  console.log('\nBootstrapping global skills...');
+  try {
+    execSync('bash scripts/setup-global-skills.sh', { cwd: PROJECT_ROOT, stdio: 'inherit' });
+  } catch {
+    console.log('⚠️  Global skills bootstrap failed (non-fatal, run later: npm run setup:skills)');
+  }
+
+  // Step 4: Repo skills configuration
   const { stateFile } = getPaths(PROJECT_ROOT);
   if (existsSync(stateFile)) {
     console.log('✅ skills.json exists, syncing...');
@@ -108,7 +116,7 @@ async function main() {
     console.log(`✅ Skills configured (${result.created.length} enabled)`);
   }
 
-  // Step 4: Build
+  // Step 5: Build
   console.log('\nBuilding project...');
   try {
     execSync('npm run build', { cwd: PROJECT_ROOT, stdio: 'inherit' });
@@ -119,7 +127,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 5: launchd setup
+  // Step 6: launchd setup
   const setupLaunchd = await ask('\nSet up launchd auto-start? (y/N): ');
   if (setupLaunchd.toLowerCase() === 'y') {
     const nodePath = execSync('which node', { encoding: 'utf8' }).trim();

@@ -1,6 +1,7 @@
 ---
 name: skills-manager
-description: Use when the user asks to manage skills, list available skills, enable or disable skills, check for new skills, or on first startup when no skills.json exists.
+description: Use when the user asks to manage skills, list available skills, enable or disable skills, check for new skills, or on first startup when no skills.json exists. Also use when user mentions "skills", "plugins", "capabilities", or asks what you can do. Always use this skill for any skill management operation rather than manually editing skills.json or symlinks.
+allowed-tools: Bash(npm run skills:*), Read, Glob
 ---
 
 # Skills Manager

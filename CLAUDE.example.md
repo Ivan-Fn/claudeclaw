@@ -59,7 +59,10 @@ All MCP tools require `user_google_email` parameter. Times use RFC3339 format.
 
 ## Skills
 
-Skills are managed via a catalog system. Active skills are symlinked into `.claude/skills/` and loaded automatically by the SDK.
+Skills follow the [Agent Skills](https://agentskills.io) open standard (Skills 2.0 format). Two tiers:
+
+- **Repo skills** (`skills-catalog/`): bot-specific, committed. Managed via `npm run skills`.
+- **Global skills** (`~/.claude/skills/`): machine-wide. Bootstrapped by `npm run setup:skills`.
 
 ### Managing skills
 
@@ -68,13 +71,14 @@ npm run skills              # List all skills and their status
 npm run skills enable <id>  # Enable a skill
 npm run skills disable <id> # Disable a skill
 npm run skills sync         # Reconcile symlinks after git pull
+npm run setup:skills        # Install global skills (agent-browser, skill-creator)
 ```
 
-The `skills-manager` skill is always enabled by default, so the bot can manage its own skills through conversation. On first startup, the bot will ask which skills to enable.
+The `skills-manager` skill is always enabled by default, so the bot can manage its own skills through conversation. On first startup, `npm run setup` bootstraps global skills and asks which repo skills to enable.
 
 ### Available skills
 
-Skills are defined in `skills-catalog/catalog.json`. Run `npm run skills list` to see what's available. Common skills:
+Repo skills (from `skills-catalog/catalog.json`):
 
 | Skill | Triggers |
 |-------|---------|
@@ -82,6 +86,14 @@ Skills are defined in `skills-catalog/catalog.json`. Run `npm run skills list` t
 | `generate-image` | draw, generate image, picture, visualize, create illustration |
 | `crm` | contacts, people, CRM, follow-up, pre-meeting briefing |
 | `morning-briefing` | morning digest, daily briefing, what's on today, pre-meeting prep |
+| `obsidian-tasks` | add task, todo, remind me, what's on my list |
+
+Global skills (installed via `npm run setup:skills`):
+
+| Skill | Triggers |
+|-------|---------|
+| `agent-browser` | browse, scrape, click, fill form, open website, screenshot |
+| `skill-creator` | create skill, improve skill, run evals, optimize description |
 
 ## n8n Integrations
 

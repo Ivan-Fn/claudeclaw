@@ -1,9 +1,7 @@
 ---
 name: morning-briefing
-description: Morning digest and pre-meeting briefings. Combines email triage,
-  calendar, financial alerts, and CRM contact lookups into a concise daily
-  briefing. Use when the user asks for their morning briefing, daily digest,
-  what's on today, pre-meeting prep, or when a scheduled briefing task runs.
+description: Morning digest and pre-meeting briefings. Combines email triage, calendar, financial alerts, and CRM contact lookups into a concise daily briefing. Use when the user asks for their morning briefing, daily digest, what's on today, pre-meeting prep, or when a scheduled briefing task runs. Also trigger on "what's my day look like", "any emails", "prep me for meetings", "what's coming up", or any request combining calendar and email context.
+allowed-tools: Bash(sqlite3:*), Bash(curl:*)
 ---
 
 ## Morning Briefing

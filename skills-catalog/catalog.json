@@ -35,6 +35,13 @@
       "description": "Daily digest combining email, calendar, and CRM data",
       "files": ["morning-briefing.md"],
       "default": false
+    },
+    {
+      "id": "obsidian-tasks",
+      "name": "Obsidian Tasks",
+      "description": "Manage personal and work todos via Obsidian vault (add, list, complete tasks)",
+      "files": ["obsidian-tasks.md"],
+      "default": false
     }
   ]
 }

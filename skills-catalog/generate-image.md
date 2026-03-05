@@ -1,6 +1,7 @@
 ---
 name: generate-image
-description: This skill should be used when the user asks to "generate an image", "draw something", "create a picture", "visualize", "create an illustration", "show me what X looks like", or any request that requires producing a visual.
+description: Generate images using the Gemini API and send them to Telegram. Use when the user asks to "generate an image", "draw something", "create a picture", "visualize", "create an illustration", "show me what X looks like", or any request that requires producing a visual. Even if the user doesn't explicitly say "image", use this skill when a visual would clearly be the best response (e.g., "what would a logo for X look like?").
+allowed-tools: Bash(python3:*), Bash(curl:*)
 ---
 
 ## Generate Image
