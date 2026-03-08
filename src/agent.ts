@@ -169,6 +169,26 @@ async function refreshGitHubAppToken(): Promise<void> {
   }
 }
 
+// ── Background GitHub App Token Refresh ───────────────────────────────
+// Refresh GH_TOKEN every 50 minutes so new sessions always get a valid token.
+// Installation tokens expire after 1 hour; 50 min gives a 10-min buffer.
+// This does NOT update already-running Claude Code subprocesses --
+// the git credential helper handles mid-session expiry for git operations.
+(function startGitHubAppTokenRefreshLoop(): void {
+  const appId = process.env['GITHUB_APP_ID'];
+  const installId = process.env['GITHUB_APP_INSTALLATION_ID'];
+  if (!appId || !installId) return;
+
+  const REFRESH_INTERVAL_MS = 50 * 60 * 1000; // 50 minutes
+  setInterval(() => {
+    refreshGitHubAppToken().catch((err) => {
+      logger.warn({ err }, 'Background GitHub App token refresh failed');
+    });
+  }, REFRESH_INTERVAL_MS);
+
+  logger.info('GitHub App token refresh loop started (every 50 min)');
+})();
+
 // ── Run Agent ──────────────────────────────────────────────────────────
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {

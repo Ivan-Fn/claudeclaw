@@ -90,8 +90,53 @@ fi
 git config --global user.name "${GIT_AUTHOR_NAME:-ClaudeClaw Bot}"
 git config --global user.email "${GIT_AUTHOR_EMAIL:-bot@claudeclaw.dev}"
 
-# Configure gh CLI to handle git credentials (uses GH_TOKEN env var)
-if [ -n "${GH_TOKEN:-}" ]; then
+# ── Dynamic git credential helper ──────────────────────────────────────
+# For App-auth bots: generate a fresh installation token on every git
+# credential request, so long-running sessions never hit the 1-hour expiry.
+# For PAT-based bots: use gh auth setup-git as before.
+if [ -n "${GITHUB_APP_ID:-}" ] && [ -f "${GITHUB_APP_PRIVATE_KEY_FILE:-/tmp/github-app-key.pem}" ]; then
+  cat > /usr/local/bin/gh-app-cred-helper << 'HELPER_EOF'
+#!/bin/bash
+# Git credential helper: generates a fresh GitHub App installation token.
+PEM=/tmp/github-app-key.pem
+APP_ID="${GITHUB_APP_ID}"
+INSTALL_ID="${GITHUB_APP_INSTALLATION_ID}"
+
+if [ -z "$APP_ID" ] || [ -z "$INSTALL_ID" ] || [ ! -f "$PEM" ]; then
+  exit 1
+fi
+
+NOW=$(date +%s)
+IAT=$((NOW - 60))
+EXP=$((NOW + 600))
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$IAT" "$EXP" "$APP_ID" | b64url)
+SIGNING_INPUT="${HEADER}.${PAYLOAD}"
+SIGNATURE=$(printf '%s' "$SIGNING_INPUT" | openssl dgst -sha256 -sign "$PEM" | b64url)
+JWT="${SIGNING_INPUT}.${SIGNATURE}"
+
+TOKEN=$(curl -sf \
+  -X POST \
+  -H "Authorization: Bearer ${JWT}" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/app/installations/${INSTALL_ID}/access_tokens" \
+  | jq -r '.token // empty')
+
+if [ -z "$TOKEN" ]; then
+  exit 1
+fi
+
+printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n" "$TOKEN"
+HELPER_EOF
+
+  chmod +x /usr/local/bin/gh-app-cred-helper
+  git config --global credential.helper /usr/local/bin/gh-app-cred-helper
+  echo "Dynamic git credential helper installed."
+elif [ -n "${GH_TOKEN:-}" ]; then
   gh auth setup-git 2>/dev/null || true
 fi
 
