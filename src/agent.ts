@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { createSign } from 'node:crypto';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS, PROJECT_ROOT } from './config.js';
@@ -66,6 +67,8 @@ export interface RunAgentOptions {
   abortSignal?: AbortSignal;
   /** Extra environment variables passed to the Claude Code subprocess. */
   env?: Record<string, string>;
+  /** Per-call model override (takes precedence over AGENT_MODEL config). */
+  model?: string;
 }
 
 // ── Bot Config Injection ──────────────────────────────────────────────
@@ -113,10 +116,63 @@ function loadBotConfigAppend(): string {
   return combined;
 }
 
+// ── GitHub App Token Refresh ───────────────────────────────────────────
+// GitHub App installation tokens expire after 1 hour. This function
+// regenerates GH_TOKEN before each Claude Code session using the PEM file
+// written by the entrypoint (kept alive -- not deleted on startup).
+
+const GITHUB_APP_KEY_FILE = '/tmp/github-app-key.pem';
+
+async function refreshGitHubAppToken(): Promise<void> {
+  const appId = process.env['GITHUB_APP_ID'];
+  const installId = process.env['GITHUB_APP_INSTALLATION_ID'];
+  if (!appId || !installId) return;
+  if (!existsSync(GITHUB_APP_KEY_FILE)) return;
+
+  try {
+    const pem = readFileSync(GITHUB_APP_KEY_FILE, 'utf-8');
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ iat: now - 60, exp: now + 600, iss: appId })).toString('base64url');
+    const signingInput = `${header}.${payload}`;
+
+    const sign = createSign('RSA-SHA256');
+    sign.update(signingInput);
+    const signature = sign.sign(pem).toString('base64url');
+    const jwt = `${signingInput}.${signature}`;
+
+    const resp = await fetch(
+      `https://api.github.com/app/installations/${installId}/access_tokens`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'claudeclaw-bot',
+        },
+      },
+    );
+
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, 'Failed to refresh GitHub App token');
+      return;
+    }
+
+    const data = await resp.json() as { token?: string };
+    if (data.token) {
+      process.env['GH_TOKEN'] = data.token;
+      logger.info('GitHub App token refreshed for session');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'GitHub App token refresh failed -- using existing token');
+  }
+}
+
 // ── Run Agent ──────────────────────────────────────────────────────────
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
-  const { message, sessionId, onTyping, abortSignal, env: extraEnv } = opts;
+  const { message, sessionId, onTyping, abortSignal, env: extraEnv, model: perCallModel } = opts;
   const startTime = Date.now();
 
   // Check daily cost limit before starting
@@ -171,6 +227,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   let usage: UsageInfo | null = null;
 
   try {
+    // Refresh GitHub App token before each session (installation tokens expire after 1h)
+    await refreshGitHubAppToken();
+
     // Read secrets from .env without polluting process.env.
     // Pass them to the SDK subprocess via the env option.
     const env = readEnvFile();
@@ -204,7 +263,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     const mcpOpts = Object.keys(AGENT_MCP_SERVERS).length > 0
       ? { mcpServers: AGENT_MCP_SERVERS }
       : {};
-    const modelOpts = AGENT_MODEL ? { model: AGENT_MODEL } : {};
+    const effectiveModel = perCallModel || AGENT_MODEL;
+    const modelOpts = effectiveModel ? { model: effectiveModel } : {};
     const agentDefsOpts = Object.keys(AGENT_SUBAGENTS).length > 0
       ? { agents: AGENT_SUBAGENTS }
       : {};
