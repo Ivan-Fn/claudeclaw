@@ -10,6 +10,7 @@ import {
   BOT_DISPLAY_NAME,
   BOT_START_MESSAGE,
   MAX_RESUME_ATTEMPTS,
+  IS_DOCKER,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -520,6 +521,12 @@ export class TelegramChannel implements MessageChannel {
 
     bot.command('rebuild', async (ctx) => {
       logger.info({ compositeId: this.cid(ctx) }, 'Rebuild requested via Telegram');
+
+      if (IS_DOCKER) {
+        await ctx.reply('Running in Docker -- code is baked into the image.\nRebuild the image and recreate the container from the host:\n\n  docker compose down && docker build ... && docker compose up -d');
+        return;
+      }
+
       await ctx.reply('Pulling latest code and restarting...');
 
       try {

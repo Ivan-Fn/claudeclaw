@@ -1,7 +1,11 @@
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { readEnvFile, PROJECT_ROOT } from './env.js';
 
 const env = readEnvFile();
+
+// Runtime environment detection
+export const IS_DOCKER = env['DEVCONTAINER'] === 'true' || existsSync('/.dockerenv');
 
 // Telegram
 export const TELEGRAM_BOT_TOKEN = env['TELEGRAM_BOT_TOKEN'] ?? '';
