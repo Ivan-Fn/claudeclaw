@@ -202,6 +202,18 @@ The `.env` file holds your credentials. See `.env.example` for all available opt
 
 If you run [n8n](https://n8n.io/) on the same machine, ClaudeClaw can call webhooks for Gmail, Calendar, Notion, and any custom workflow. Configure `N8N_BASE_URL` in your `.env`.
 
+## Running in Docker
+
+ClaudeClaw can run in Docker containers as autonomous coding agents -- isolated bots that work on git repos, create branches, and open PRs. Each agent gets its own Telegram bot, GitHub token, and resource limits.
+
+```bash
+# Build the image
+npm run build
+docker build -t claudeclaw-agent:latest .
+```
+
+See [`docker/README.md`](docker/README.md) for the full deployment guide, including secrets management (1Password, SOPS, or plain .env), agent config templates, and multi-agent setups.
+
 ## Running as a Service (macOS)
 
 ```bash

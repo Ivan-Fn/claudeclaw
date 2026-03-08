@@ -133,6 +133,10 @@ Common CRM scheduled tasks:
 - Pre-meeting briefing: `/schedule 0 8 * * 1-5 Check my calendar for today. For each meeting with external people, look them up in the CRM and send me a briefing.`
 - Weekly follow-up check: `/schedule 0 9 * * 1 Check my CRM for contacts I haven't been in touch with for 30+ days. List the top 5 I should reconnect with.`
 
+## Docker Mode
+
+When running in a Docker container, environment variables are injected directly (no .env file needed). Set `DEVCONTAINER=true` in the container environment. The `/rebuild` command is disabled in Docker mode since bot code is baked into the image. See `docker/README.md` for the full deployment guide.
+
 ## Process Management
 
 The bot has built-in commands for self-management that don't involve any LLM calls:
