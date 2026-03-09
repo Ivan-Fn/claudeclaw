@@ -39,7 +39,9 @@ RUN npm install -g @anthropic-ai/claude-code@latest
 
 # Excalidraw: Playwright + Chromium for diagram rendering (~700-800MB)
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN pip install --break-system-packages playwright \
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && pip install --break-system-packages playwright \
     && playwright install chromium --with-deps \
     && chmod -R o+rx $PLAYWRIGHT_BROWSERS_PATH
 
