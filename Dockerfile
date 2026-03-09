@@ -55,8 +55,8 @@ COPY dist/ ./dist/
 COPY scripts/ ./scripts/
 
 # Config directories
-RUN mkdir -p /home/agent/.claude /repos /bot/store /shared \
-  && chown -R agent:agent /home/agent /bot/store /repos /shared
+RUN mkdir -p /home/agent/.claude /repos /bot/store /bot/workspace/uploads /shared \
+  && chown -R agent:agent /home/agent /bot/store /bot/workspace /repos /shared
 
 USER agent
 WORKDIR /bot
