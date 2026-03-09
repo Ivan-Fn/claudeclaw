@@ -95,7 +95,7 @@ git config --global user.email "${GIT_AUTHOR_EMAIL:-bot@claudeclaw.dev}"
 # credential request, so long-running sessions never hit the 1-hour expiry.
 # For PAT-based bots: use gh auth setup-git as before.
 if [ -n "${GITHUB_APP_ID:-}" ] && [ -f "${GITHUB_APP_PRIVATE_KEY_FILE:-/tmp/github-app-key.pem}" ]; then
-  cat > /usr/local/bin/gh-app-cred-helper << 'HELPER_EOF'
+  cat > /tmp/gh-app-cred-helper << 'HELPER_EOF'
 #!/bin/bash
 # Git credential helper: generates a fresh GitHub App installation token.
 PEM=/tmp/github-app-key.pem
@@ -133,8 +133,8 @@ fi
 printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n" "$TOKEN"
 HELPER_EOF
 
-  chmod +x /usr/local/bin/gh-app-cred-helper
-  git config --global credential.helper /usr/local/bin/gh-app-cred-helper
+  chmod +x /tmp/gh-app-cred-helper
+  git config --global credential.helper /tmp/gh-app-cred-helper
   echo "Dynamic git credential helper installed."
 elif [ -n "${GH_TOKEN:-}" ]; then
   gh auth setup-git 2>/dev/null || true
