@@ -10,6 +10,9 @@
 // Channel-specific code (formatting, file download, commands) lives
 // in src/channels/<channel>.ts.
 
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { MAX_TIMEOUT_RETRIES } from './config.js';
 import { logger } from './logger.js';
 import { runAgent, type UsageInfo } from './agent.js';
@@ -20,7 +23,10 @@ import {
   saveTokenUsage,
   setActiveRequest,
   clearActiveRequest,
+  getModelOverride,
+  logToHiveMind,
 } from './db.js';
+import { BOT_NAME } from './config.js';
 import { voiceCapabilities, synthesizeSpeech } from './voice.js';
 import type { MessageChannel } from './channels/types.js';
 
@@ -49,6 +55,56 @@ function checkContextWarning(compositeId: string, usage: UsageInfo): string | nu
 /** Get last known usage for a composite ID (used by channel adapters for /status). */
 export function getLastUsage(compositeId: string): UsageInfo | undefined {
   return lastUsage.get(compositeId);
+}
+
+// ── File Marker Extraction ────────────────────────────────────────────
+
+interface FileMarker {
+  type: 'document' | 'photo';
+  filePath: string;
+  caption?: string | undefined;
+}
+
+interface ExtractResult {
+  text: string;
+  files: FileMarker[];
+}
+
+const HOME = homedir();
+const BLOCKED_PATTERNS = ['.env', 'credentials', 'token', 'secret', '.key', '.pem', 'id_rsa', 'id_ed25519'];
+
+function isPathSafe(filePath: string): boolean {
+  const resolved = resolve(filePath);
+  // Must be under home directory
+  if (!resolved.startsWith(HOME)) return false;
+  // Block path traversal
+  if (filePath.includes('..')) return false;
+  // Block known sensitive files
+  const lower = resolved.toLowerCase();
+  if (BLOCKED_PATTERNS.some(p => lower.includes(p))) return false;
+  return true;
+}
+
+export function extractFileMarkers(text: string): ExtractResult {
+  const files: FileMarker[] = [];
+  const pattern = /\[SEND_(FILE|PHOTO):([^\]|]+)(?:\|([^\]]*))?\]/g;
+
+  const cleaned = text.replace(pattern, (_, kind: string, filePath: string, caption?: string) => {
+    const trimmedPath = filePath.trim();
+    if (isPathSafe(trimmedPath)) {
+      files.push({
+        type: kind === 'PHOTO' ? 'photo' : 'document',
+        filePath: trimmedPath,
+        caption: caption?.trim() || undefined,
+      });
+    } else {
+      logger.warn({ filePath: trimmedPath }, 'Blocked unsafe file send path');
+    }
+    return '';
+  });
+
+  const trimmed = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  return { text: trimmed, files };
 }
 
 // ── Active Abort Controllers ───────────────────────────────────────────
@@ -102,28 +158,32 @@ export async function processMessage(
   respondWithVoice = false,
   skipLog = false,
 ): Promise<void> {
-  // 1. Start typing indicator
-  const stopTyping = channel.startTyping(rawChatId);
+  // Track this request as in-flight (for auto-resume if bot restarts mid-task).
+  // Skip re-registering on resumed messages -- the row already exists and
+  // re-inserting would reset resume_count to 0, defeating the max-attempts guard.
+  if (!skipLog) {
+    setActiveRequest(cid, channel.channelId, rawChatId, userMessage);
+  }
 
-  // Track this request as in-flight (for auto-resume if bot restarts mid-task)
-  setActiveRequest(cid, channel.channelId, rawChatId, userMessage);
-
-  // 2. Build memory context
+  // Build memory context
   const memoryContext = buildMemoryContext(cid, userMessage);
   const fullMessage = memoryContext + userMessage;
 
-  // 3. Get or create session
+  // Get or create session + model override
   const sessionId = getSession(cid);
+  const modelOverride = getModelOverride(cid);
 
-  // 4. Create abort controller
+  // Create abort controller
   const abortController = new AbortController();
   activeAborts.set(cid, abortController);
 
+  // Start typing indicator inside try so finally always cleans it up
+  const stopTyping = channel.startTyping(rawChatId);
   try {
     // 5. Run agent (with auto-continue on timeout)
     let currentMessage = fullMessage;
     let currentSessionId = sessionId;
-    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, abortController);
+    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, abortController, modelOverride);
 
     // Auto-continue: if the agent timed out mid-work, resume automatically
     for (let retry = 0; retry < MAX_TIMEOUT_RETRIES && result.error === 'timeout'; retry++) {
@@ -139,7 +199,7 @@ export async function processMessage(
       activeAborts.set(cid, retryAbort);
 
       currentMessage = 'Continue where you left off. Complete the task you were working on.';
-      result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, retryAbort);
+      result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, retryAbort, modelOverride);
     }
 
     // 6. Save session
@@ -152,20 +212,51 @@ export async function processMessage(
       saveConversationTurn(cid, userMessage, result.text, result.sessionId ?? sessionId);
     }
 
-    // 8. Send response
+    // 7b. Log to HiveMind (cross-agent activity log)
+    const costStr = result.usage ? `$${result.usage.totalCostUsd.toFixed(4)}` : '';
+    const modelStr = result.model || 'unknown';
+    logToHiveMind(
+      BOT_NAME,
+      rawChatId,
+      result.error ? `error:${result.error}` : 'response',
+      `${userMessage.slice(0, 120)}${userMessage.length > 120 ? '...' : ''}`,
+      JSON.stringify({ model: modelStr, cost: costStr, tokens: result.usage?.outputTokens ?? 0 }),
+    );
+
+    // 8. Extract file markers and send response
+    const { text: responseText, files: fileMarkers } = extractFileMarkers(result.text);
+
     const caps = voiceCapabilities();
     const shouldSpeakBack = caps.tts && (respondWithVoice || voiceEnabledChats.has(cid)) && !result.error;
 
     if (shouldSpeakBack && channel.sendVoice) {
       try {
-        const audio = await synthesizeSpeech(result.text);
+        const audio = await synthesizeSpeech(responseText);
         await channel.sendVoice(rawChatId, audio);
       } catch (err) {
         logger.warn({ err }, 'TTS failed, falling back to text');
-        await channel.sendFormatted(rawChatId, result.text);
+        await channel.sendFormatted(rawChatId, responseText);
       }
     } else {
-      await channel.sendFormatted(rawChatId, result.text);
+      await channel.sendFormatted(rawChatId, responseText);
+    }
+
+    // Send any file attachments
+    for (const file of fileMarkers) {
+      if (!existsSync(file.filePath)) {
+        await channel.send(rawChatId, `Could not send file: ${file.filePath} (not found)`);
+        continue;
+      }
+      try {
+        if (file.type === 'photo' && channel.sendPhoto) {
+          await channel.sendPhoto(rawChatId, file.filePath, file.caption);
+        } else if (channel.sendDocument) {
+          await channel.sendDocument(rawChatId, file.filePath, file.caption);
+        }
+      } catch (err) {
+        logger.warn({ err, filePath: file.filePath }, 'Failed to send file');
+        await channel.send(rawChatId, `Failed to send: ${file.filePath}`);
+      }
     }
 
     // 9. Log token usage and check context warnings
@@ -189,6 +280,7 @@ export async function processMessage(
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    logToHiveMind(BOT_NAME, rawChatId, 'crash', userMessage.slice(0, 120), JSON.stringify({ error: errMsg.slice(0, 200) }));
     if (errMsg.includes('exited with code 1')) {
       const usage = lastUsage.get(cid);
       const hint = usage
@@ -217,6 +309,7 @@ async function runAgentWithAbort(
   chatId: string,
   channelId: string,
   abortController: AbortController,
+  model?: string,
 ) {
   // Pass the channel-specific chat ID env var to the agent subprocess
   const envKey = `${channelId.toUpperCase()}_CHAT_ID`;
@@ -227,5 +320,6 @@ async function runAgentWithAbort(
     env: { [envKey]: chatId },
   };
   if (sessionId !== undefined) agentOpts.sessionId = sessionId;
+  if (model) agentOpts.model = model;
   return runAgent(agentOpts);
 }

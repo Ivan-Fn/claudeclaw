@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatForTelegram, splitMessage } from './bot.js';
+import { formatForTelegram, splitMessage, extractFileMarkers } from './bot.js';
 
 describe('formatForTelegram', () => {
   it('escapes HTML entities', () => {
@@ -120,5 +120,60 @@ describe('splitMessage', () => {
 
   it('handles empty string', () => {
     expect(splitMessage('', 100)).toEqual(['']);
+  });
+});
+
+describe('extractFileMarkers', () => {
+  it('extracts SEND_FILE markers', () => {
+    const input = 'Here is the report\n[SEND_FILE:/Users/mini1/report.pdf]\nDone.';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.type).toBe('document');
+    expect(result.files[0]!.filePath).toBe('/Users/mini1/report.pdf');
+    expect(result.text).toBe('Here is the report\n\nDone.');
+  });
+
+  it('extracts SEND_PHOTO markers', () => {
+    const input = '[SEND_PHOTO:/Users/mini1/chart.png]';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.type).toBe('photo');
+  });
+
+  it('extracts captions', () => {
+    const input = '[SEND_FILE:/Users/mini1/data.csv|Quarterly data]';
+    const result = extractFileMarkers(input);
+    expect(result.files[0]!.caption).toBe('Quarterly data');
+  });
+
+  it('blocks paths with ../', () => {
+    const input = '[SEND_FILE:/Users/mini1/../etc/passwd]';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(0);
+  });
+
+  it('blocks paths outside home directory', () => {
+    const input = '[SEND_FILE:/etc/shadow]';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(0);
+  });
+
+  it('blocks sensitive file patterns', () => {
+    const input = '[SEND_FILE:/Users/mini1/.env]';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(0);
+  });
+
+  it('handles multiple markers', () => {
+    const input = '[SEND_FILE:/Users/mini1/a.pdf]\n[SEND_PHOTO:/Users/mini1/b.png]';
+    const result = extractFileMarkers(input);
+    expect(result.files).toHaveLength(2);
+  });
+
+  it('returns text unchanged when no markers', () => {
+    const input = 'Just plain text.';
+    const result = extractFileMarkers(input);
+    expect(result.text).toBe('Just plain text.');
+    expect(result.files).toHaveLength(0);
   });
 });

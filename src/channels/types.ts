@@ -68,6 +68,16 @@ export interface MessageChannel {
    * Falls back to file upload on platforms without native voice.
    */
   sendVoice?(chatId: string, audio: Buffer, filename?: string): Promise<void>;
+
+  /**
+   * Send a document/file. Optional -- not all platforms support this.
+   */
+  sendDocument?(chatId: string, filePath: string, caption?: string): Promise<void>;
+
+  /**
+   * Send a photo. Optional -- not all platforms support this.
+   */
+  sendPhoto?(chatId: string, filePath: string, caption?: string): Promise<void>;
 }
 
 /**

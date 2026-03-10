@@ -42,6 +42,13 @@
       "description": "Manage personal and work todos via Obsidian vault (add, list, complete tasks)",
       "files": ["obsidian-tasks.md"],
       "default": false
+    },
+    {
+      "id": "grocery",
+      "name": "Grocery List",
+      "description": "Manage shared grocery list in Obsidian vault (add items, templates, check off)",
+      "files": ["grocery.md"],
+      "default": false
     }
   ]
 }

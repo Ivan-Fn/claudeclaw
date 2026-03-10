@@ -10,6 +10,7 @@ import { enqueue } from './queue.js';
 import { runDecaySweep } from './memory.js';
 import { cleanupOldUploads } from './media.js';
 import { checkNewSkills } from './skills-check.js';
+import { startDashboard, stopDashboard } from './dashboard.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { SlackChannel } from './channels/slack.js';
 import { channelFromComposite, rawChatId } from './channels/types.js';
@@ -127,6 +128,9 @@ async function main(): Promise<void> {
   // 4. Initialize scheduler with multi-channel task executor
   initScheduler(createTaskExecutor(channels));
 
+  // 4.5. Start dashboard server (non-blocking)
+  startDashboard();
+
   // 5. Start maintenance intervals
   const decayInterval = setInterval(() => runDecaySweep(), DECAY_INTERVAL_MS);
   const cleanupInterval = setInterval(() => cleanupOldUploads(), CLEANUP_INTERVAL_MS);
@@ -138,6 +142,7 @@ async function main(): Promise<void> {
     clearInterval(decayInterval);
     clearInterval(cleanupInterval);
     stopScheduler();
+    stopDashboard();
 
     for (const channel of channels.values()) {
       try {

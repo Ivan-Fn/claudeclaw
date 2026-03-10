@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DB_PATH, MEMORY_DECAY_FACTOR, MEMORY_MIN_SALIENCE } from './config.js';
+import { DB_PATH, MEMORY_DECAY_FACTOR, MEMORY_MIN_SALIENCE, SHARED_HIVEMIND_DB } from './config.js';
 import { logger } from './logger.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -15,6 +15,22 @@ export interface Memory {
   salience: number;
   created_at: number;
   accessed_at: number;
+}
+
+export interface HiveMindEntry {
+  id: number;
+  agent_id: string;
+  chat_id: string;
+  action: string;
+  summary: string;
+  artifacts: string | null;
+  created_at: number;
+}
+
+export interface ChatModelOverride {
+  chat_id: string;
+  model: string;
+  updated_at: number;
 }
 
 export interface ScheduledTask {
@@ -61,8 +77,46 @@ export function initDatabase(dbPath?: string): Database.Database {
 }
 
 export function closeDatabase(): void {
+  _hiveMindDb?.close();
+  _hiveMindDb = undefined;
   _db?.close();
   _db = undefined;
+}
+
+// ── Shared HiveMind DB (cross-agent) ──────────────────────────────────
+// Separate SQLite file shared between all agents (mounted from host).
+// Falls back to the local bot DB if SHARED_HIVEMIND_DB is not set.
+
+let _hiveMindDb: Database.Database | undefined;
+
+function getHiveMindDb(): Database.Database {
+  if (_hiveMindDb) return _hiveMindDb;
+  if (!SHARED_HIVEMIND_DB) return getDb(); // fallback to local DB
+
+  mkdirSync(dirname(SHARED_HIVEMIND_DB), { recursive: true });
+  const db = new Database(SHARED_HIVEMIND_DB);
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hive_mind (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id    TEXT NOT NULL,
+      chat_id     TEXT NOT NULL,
+      action      TEXT NOT NULL,
+      summary     TEXT NOT NULL,
+      artifacts   TEXT,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_hive_mind_agent
+      ON hive_mind(agent_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_hive_mind_time
+      ON hive_mind(created_at DESC);
+  `);
+
+  logger.info({ path: SHARED_HIVEMIND_DB }, 'Shared HiveMind DB initialized');
+  _hiveMindDb = db;
+  return db;
 }
 
 // ── Schema ─────────────────────────────────────────────────────────────
@@ -233,6 +287,31 @@ function createSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_interactions_contact
       ON interactions(contact_id, date DESC);
+
+    -- ── HiveMind (cross-agent activity log) ─────────────────────────
+
+    CREATE TABLE IF NOT EXISTS hive_mind (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id    TEXT NOT NULL,
+      chat_id     TEXT NOT NULL,
+      action      TEXT NOT NULL,
+      summary     TEXT NOT NULL,
+      artifacts   TEXT,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hive_mind_agent
+      ON hive_mind(agent_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_hive_mind_time
+      ON hive_mind(created_at DESC);
+
+    -- ── Chat Model Overrides ────────────────────────────────────────
+
+    CREATE TABLE IF NOT EXISTS chat_model_overrides (
+      chat_id    TEXT PRIMARY KEY,
+      model      TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
   `);
 }
 
@@ -735,4 +814,55 @@ export function getCostByModel(chatId: string, sinceUnix: number): ModelCostSumm
        ORDER BY totalCostUsd DESC`,
     )
     .all(chatId, sinceUnix) as ModelCostSummary[];
+}
+
+// ── HiveMind (cross-agent activity log) ──────────────────────────────
+
+export function logToHiveMind(
+  agentId: string,
+  chatId: string,
+  action: string,
+  summary: string,
+  artifacts?: string,
+): void {
+  getHiveMindDb()
+    .prepare(
+      `INSERT INTO hive_mind (agent_id, chat_id, action, summary, artifacts)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(agentId, chatId, action, summary, artifacts ?? null);
+}
+
+export function getHiveMindEntries(limit = 20, agentId?: string): HiveMindEntry[] {
+  if (agentId) {
+    return getHiveMindDb()
+      .prepare('SELECT * FROM hive_mind WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?')
+      .all(agentId, limit) as HiveMindEntry[];
+  }
+  return getHiveMindDb()
+    .prepare('SELECT * FROM hive_mind ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as HiveMindEntry[];
+}
+
+// ── Chat Model Overrides ─────────────────────────────────────────────
+
+export function getModelOverride(chatId: string): string | undefined {
+  const row = getDb()
+    .prepare('SELECT model FROM chat_model_overrides WHERE chat_id = ?')
+    .get(chatId) as { model: string } | undefined;
+  return row?.model;
+}
+
+export function setModelOverride(chatId: string, model: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO chat_model_overrides (chat_id, model, updated_at)
+       VALUES (?, ?, unixepoch())
+       ON CONFLICT(chat_id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at`,
+    )
+    .run(chatId, model);
+}
+
+export function clearModelOverride(chatId: string): void {
+  getDb().prepare('DELETE FROM chat_model_overrides WHERE chat_id = ?').run(chatId);
 }

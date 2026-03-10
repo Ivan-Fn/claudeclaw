@@ -11,6 +11,8 @@ import {
   BOT_START_MESSAGE,
   MAX_RESUME_ATTEMPTS,
   IS_DOCKER,
+  DASHBOARD_PORT,
+  DASHBOARD_TOKEN,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -23,6 +25,9 @@ import {
   getActiveRequests,
   incrementResumeCount,
   clearActiveRequest,
+  getModelOverride,
+  setModelOverride,
+  clearModelOverride,
 } from '../db.js';
 import { getMemoryStats } from '../memory.js';
 import { voiceCapabilities, transcribeAudio, synthesizeSpeech } from '../voice.js';
@@ -88,6 +93,7 @@ export class TelegramChannel implements MessageChannel {
         { command: 'status', description: 'Bot status and diagnostics' },
         { command: 'cost', description: 'API cost estimates' },
         { command: 'voice', description: 'Toggle voice mode on/off' },
+        { command: 'model', description: 'Switch model (haiku/sonnet/opus)' },
         { command: 'memory', description: 'Show recent memories' },
         { command: 'gmail', description: 'Email summary (unread/promos)' },
         { command: 'cal', description: 'Calendar (today/tomorrow/week)' },
@@ -236,6 +242,14 @@ export class TelegramChannel implements MessageChannel {
     await this.bot.api.sendVoice(chatId, new InputFile(audio, 'response.ogg'));
   }
 
+  async sendDocument(chatId: string, filePath: string, caption?: string): Promise<void> {
+    await this.bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined);
+  }
+
+  async sendPhoto(chatId: string, filePath: string, caption?: string): Promise<void> {
+    await this.bot.api.sendPhoto(chatId, new InputFile(filePath), caption ? { caption } : undefined);
+  }
+
   // ── Internal: Middleware ─────────────────────────────────────────
 
   private setupMiddleware(): void {
@@ -361,6 +375,52 @@ export class TelegramChannel implements MessageChannel {
       const cid = this.cid(ctx);
       clearSession(cid);
       await ctx.reply('Session cleared. Memories will fade naturally over time.');
+    });
+
+    bot.command('model', async (ctx) => {
+      const cid = this.cid(ctx);
+      const args = (ctx.match || '').trim().toLowerCase();
+
+      const MODELS: Record<string, string> = {
+        opus: 'claude-opus-4-6',
+        sonnet: 'claude-sonnet-4-6',
+        haiku: 'claude-haiku-4-5',
+      };
+
+      if (!args) {
+        const current = getModelOverride(cid);
+        const label = current
+          ? Object.entries(MODELS).find(([, v]) => v === current)?.[0] ?? current
+          : 'default (from config)';
+        await ctx.reply(`Current model: ${label}\nUsage: /model haiku|sonnet|opus|reset`);
+        return;
+      }
+
+      if (args === 'reset') {
+        clearModelOverride(cid);
+        await ctx.reply('Model override cleared. Using default from config.');
+        return;
+      }
+
+      const modelId = MODELS[args];
+      if (!modelId) {
+        await ctx.reply(`Unknown model "${args}". Options: haiku, sonnet, opus, reset`);
+        return;
+      }
+
+      setModelOverride(cid, modelId);
+      await ctx.reply(`Model set to ${args} (${modelId}). Use /model reset to revert.`);
+    });
+
+    bot.command('dashboard', async (ctx) => {
+      if (!DASHBOARD_PORT) {
+        await ctx.reply('Dashboard not configured.');
+        return;
+      }
+      const chatId = ctx.chat.id.toString();
+      const cid = this.cid(ctx);
+      const tokenParam = DASHBOARD_TOKEN ? `?token=${DASHBOARD_TOKEN}&chatId=${cid}` : `?chatId=${cid}`;
+      await ctx.reply(`Dashboard: http://localhost:${DASHBOARD_PORT}/${tokenParam}\n\nFor remote access, set up a Cloudflare Tunnel.`);
     });
 
     bot.command('cost', async (ctx) => {

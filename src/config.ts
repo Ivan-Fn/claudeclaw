@@ -150,3 +150,13 @@ export const SLACK_ALLOWED_USER_IDS = (env['SLACK_ALLOWED_USER_IDS'] ?? '')
 // n8n integration
 export const N8N_BASE_URL = (env['N8N_BASE_URL'] ?? '').trim().replace(/\/+$/, '');
 export const N8N_API_KEY = env['N8N_API_KEY'] ?? '';
+
+// Dashboard
+export const DASHBOARD_PORT = Number(env['DASHBOARD_PORT']) || 3141;
+export const DASHBOARD_TOKEN = env['DASHBOARD_TOKEN'] ?? '';
+
+// Shared HiveMind DB path (cross-agent activity log)
+// In Docker: /shared/hivemind.db (bind-mounted from host)
+// On host: set SHARED_HIVEMIND_DB to point at the shared file
+// If unset, HiveMind falls back to the local bot DB.
+export const SHARED_HIVEMIND_DB = env['SHARED_HIVEMIND_DB']?.trim() || '';

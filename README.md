@@ -214,6 +214,29 @@ docker build -t claudeclaw-agent:latest .
 
 See [`docker/README.md`](docker/README.md) for the full deployment guide, including secrets management (1Password, SOPS, or plain .env), agent config templates, and multi-agent setups.
 
+### GitHub App authentication (reviewer bots)
+
+Bots that need a separate GitHub identity (e.g. to approve PRs) can authenticate via a GitHub App instead of a PAT. Set these in `op-env` instead of `GH_TOKEN`:
+
+```
+GITHUB_APP_ID=op://vault/item/app-id
+GITHUB_APP_INSTALLATION_ID=op://vault/item/installation-id
+GITHUB_APP_PRIVATE_KEY=op://vault/item/private-key
+```
+
+The private key must be stored in 1Password as **base64-encoded PEM** (single line):
+```bash
+base64 < downloaded-key.pem | tr -d '\n'   # encode for storage
+```
+
+The entrypoint generates a short-lived installation token (1h) at every container start:
+1. Decodes `GITHUB_APP_PRIVATE_KEY` from base64 to a temp PEM file
+2. Builds a JWT signed with RS256 using openssl
+3. Exchanges the JWT for an installation token via the GitHub API
+4. Exports the result as `GH_TOKEN`
+
+If `GH_TOKEN` is already set (PAT bots), App auth is skipped entirely.
+
 ## Running as a Service (macOS)
 
 ```bash
