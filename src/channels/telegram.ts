@@ -199,14 +199,19 @@ export class TelegramChannel implements MessageChannel {
       } catch (err) {
         const is409 = err instanceof Error && err.message.includes('409');
         if (is409 && attempt < MAX_START_RETRIES) {
-          const delaySec = attempt * 10;
-          logger.warn({ attempt, delaySec }, 'Telegram 409 conflict, retrying after delay');
+          // Wait longer than Grammy's 30s poll timeout so the old connection expires.
+          const delaySec = 35;
+          logger.warn({ attempt, delaySec }, 'Telegram 409 conflict, waiting for old poll to expire');
           await new Promise((r) => setTimeout(r, delaySec * 1000));
           // Re-create the bot instance to get a fresh polling state
           this.bot = new Bot(TELEGRAM_BOT_TOKEN!);
           this.setupMiddleware();
           this.setupCommands();
           this.setupMessageHandlers();
+          // Clear lingering session again before retry
+          try {
+            await this.bot.api.deleteWebhook({ drop_pending_updates: false });
+          } catch { /* best effort */ }
           continue;
         }
         throw err;
