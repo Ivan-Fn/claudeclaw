@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { PID_FILE, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, BOT_DISPLAY_NAME } from './config.js';
+import { dirname, join } from 'node:path';
+import { PID_FILE, PROJECT_ROOT, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, BOT_DISPLAY_NAME } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
 import { escapeHtml } from './channels/format-telegram.js';
@@ -83,6 +83,56 @@ function createTaskExecutor(channels: Map<string, MessageChannel>): TaskExecutor
 const DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// ── Crash Guard ─────────────────────────────────────────────────────────
+// Track consecutive startup failures (persisted to disk so it survives
+// process restarts by launchd). After MAX_CRASH_RETRIES consecutive 409s,
+// the bot stays down instead of looping forever.
+
+const MAX_CRASH_RETRIES = 3;
+const CRASH_FILE = join(PROJECT_ROOT, 'store', '.crash-count');
+const CRASH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CrashState {
+  count: number;
+  firstCrash: number;
+}
+
+function readCrashState(): CrashState {
+  try {
+    if (existsSync(CRASH_FILE)) {
+      return JSON.parse(readFileSync(CRASH_FILE, 'utf8')) as CrashState;
+    }
+  } catch { /* corrupted file */ }
+  return { count: 0, firstCrash: 0 };
+}
+
+function writeCrashState(state: CrashState): void {
+  try {
+    writeFileSync(CRASH_FILE, JSON.stringify(state));
+  } catch { /* best effort */ }
+}
+
+function clearCrashState(): void {
+  try {
+    if (existsSync(CRASH_FILE)) unlinkSync(CRASH_FILE);
+  } catch { /* best effort */ }
+}
+
+function recordCrash(): boolean {
+  const now = Date.now();
+  const state = readCrashState();
+
+  // Reset counter if outside the crash window
+  if (now - state.firstCrash > CRASH_WINDOW_MS) {
+    writeCrashState({ count: 1, firstCrash: now });
+    return true; // still OK to retry
+  }
+
+  state.count++;
+  writeCrashState(state);
+  return state.count < MAX_CRASH_RETRIES;
+}
+
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -162,7 +212,19 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  // 7. Start all channels
+  // 7. Check crash guard before starting channels
+  const crashState = readCrashState();
+  if (crashState.count >= MAX_CRASH_RETRIES && Date.now() - crashState.firstCrash < CRASH_WINDOW_MS) {
+    logger.error(
+      { crashes: crashState.count, windowMs: CRASH_WINDOW_MS },
+      `Giving up after ${crashState.count} consecutive startup failures. Delete ${CRASH_FILE} to retry.`,
+    );
+    releaseLock();
+    // Exit 0 so launchd KeepAlive doesn't restart us
+    process.exit(0);
+  }
+
+  // 8. Start all channels
   // Slack uses Socket Mode (non-blocking), start it first.
   // Telegram's start() blocks (long-polling), so start it last.
   try {
@@ -170,10 +232,22 @@ async function main(): Promise<void> {
       await slack.start();
     }
     if (telegram) {
+      // Clear crash counter once polling is established (onStart fires before polling)
+      // We hook into the first successful getUpdates by clearing after a short delay
+      setTimeout(() => clearCrashState(), 15_000);
       await telegram.start();
     }
   } catch (err) {
-    logger.error({ err }, 'Channel failed to start');
+    const is409 = err instanceof Error && err.message.includes('409');
+    if (is409) {
+      const canRetry = recordCrash();
+      logger.error({ err, canRetry }, 'Telegram 409 conflict on startup');
+      if (!canRetry) {
+        logger.error(`Max startup retries (${MAX_CRASH_RETRIES}) reached. Staying down.`);
+      }
+    } else {
+      logger.error({ err }, 'Channel failed to start');
+    }
     releaseLock();
     process.exit(1);
   }
