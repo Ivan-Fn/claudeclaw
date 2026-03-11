@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClaudeClaw Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.25rem; }
+    .badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-green { background: #065f46; color: #6ee7b7; }
+    .badge-yellow { background: #713f12; color: #fbbf24; }
+    .badge-red { background: #7f1d1d; color: #fca5a5; }
+    .badge-blue { background: #1e3a5f; color: #93c5fd; }
+    .stat-value { font-size: 1.75rem; font-weight: 700; color: #f1f5f9; }
+    .stat-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .memory-item { border-left: 3px solid #3b82f6; padding-left: 0.75rem; margin-bottom: 0.5rem; }
+    .memory-item.semantic { border-color: #8b5cf6; }
+    .memory-item.episodic { border-color: #06b6d4; }
+    .convo-user { background: #1e3a5f; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem; }
+    .convo-assistant { background: #1a2e1a; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem; }
+    .hive-entry { border-left: 3px solid #f59e0b; padding-left: 0.75rem; margin-bottom: 0.5rem; }
+    .gauge { position: relative; width: 120px; height: 120px; }
+    .task-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #334155; }
+    .task-row:last-child { border-bottom: none; }
+    pre { background: #0f172a; padding: 0.5rem; border-radius: 0.375rem; overflow-x: auto; font-size: 0.8rem; }
+    .tab { cursor: pointer; padding: 0.5rem 1rem; border-bottom: 2px solid transparent; color: #94a3b8; }
+    .tab.active { border-color: #3b82f6; color: #f1f5f9; }
+    .tab:hover { color: #cbd5e1; }
+    .loading { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .refresh-btn { cursor: pointer; transition: transform 0.3s; }
+    .refresh-btn:hover { transform: rotate(180deg); }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-white" id="botName">ClaudeClaw Dashboard</h1>
+        <p class="text-sm text-slate-400" id="botMeta"></p>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-xs text-slate-500" id="lastRefresh"></span>
+        <button onclick="refreshAll()" class="refresh-btn text-slate-400 hover:text-white" title="Refresh">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="card">
+        <div class="stat-label">Today's Cost</div>
+        <div class="stat-value" id="costToday">--</div>
+      </div>
+      <div class="card">
+        <div class="stat-label">Today's Turns</div>
+        <div class="stat-value" id="turnsToday">--</div>
+      </div>
+      <div class="card">
+        <div class="stat-label">Context Window</div>
+        <div class="stat-value" id="contextPct">--</div>
+      </div>
+      <div class="card">
+        <div class="stat-label">Memories</div>
+        <div class="stat-value" id="memoryCount">--</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-6 border-b border-slate-700">
+      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
+      <div class="tab" data-tab="conversation" onclick="switchTab('conversation')">Conversation</div>
+      <div class="tab" data-tab="memories" onclick="switchTab('memories')">Memories</div>
+      <div class="tab" data-tab="tasks" onclick="switchTab('tasks')">Tasks</div>
+      <div class="tab" data-tab="hivemind" onclick="switchTab('hivemind')">Hive Mind</div>
+      <div class="tab" data-tab="costs" onclick="switchTab('costs')">Costs</div>
+    </div>
+
+    <!-- Tab Content -->
+    <div id="tab-overview">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Health -->
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-3">System Health</h2>
+          <div class="space-y-2 text-sm" id="healthInfo">
+            <p class="loading text-slate-400">Loading...</p>
+          </div>
+        </div>
+        <!-- Active Requests -->
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-3">Active Requests</h2>
+          <div id="activeRequests" class="text-sm">
+            <p class="text-slate-400">No active requests</p>
+          </div>
+        </div>
+        <!-- Recent Hive Mind -->
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-3">Recent Hive Mind Activity</h2>
+          <div id="recentHiveMind" class="text-sm">
+            <p class="loading text-slate-400">Loading...</p>
+          </div>
+        </div>
+        <!-- Upcoming Tasks -->
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-3">Scheduled Tasks</h2>
+          <div id="upcomingTasks" class="text-sm">
+            <p class="loading text-slate-400">Loading...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-conversation" class="hidden">
+      <div class="card">
+        <h2 class="text-lg font-semibold mb-3">Recent Conversation</h2>
+        <div id="conversationLog" class="space-y-2">
+          <p class="loading text-slate-400">Loading...</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-memories" class="hidden">
+      <div class="card">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-lg font-semibold">Memories</h2>
+          <div class="text-sm text-slate-400" id="memoryStatsDetail"></div>
+        </div>
+        <div id="memoryList" class="space-y-2">
+          <p class="loading text-slate-400">Loading...</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-tasks" class="hidden">
+      <div class="card">
+        <h2 class="text-lg font-semibold mb-3">All Scheduled Tasks</h2>
+        <div id="taskList">
+          <p class="loading text-slate-400">Loading...</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-hivemind" class="hidden">
+      <div class="card">
+        <h2 class="text-lg font-semibold mb-3">Hive Mind Activity Log</h2>
+        <div id="hiveMindFull">
+          <p class="loading text-slate-400">Loading...</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-costs" class="hidden">
+      <div class="grid md:grid-cols-3 gap-4 mb-6">
+        <div class="card">
+          <div class="stat-label">24 Hours</div>
+          <div id="cost24h" class="text-sm mt-2"></div>
+        </div>
+        <div class="card">
+          <div class="stat-label">7 Days</div>
+          <div id="cost7d" class="text-sm mt-2"></div>
+        </div>
+        <div class="card">
+          <div class="stat-label">30 Days</div>
+          <div id="cost30d" class="text-sm mt-2"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="text-lg font-semibold mb-3">Cost by Model (30 days)</h2>
+        <div id="costByModel" class="text-sm"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Config
+    const params = new URLSearchParams(window.location.search);
+    const TOKEN = params.get('token') || '';
+    const CHAT_ID = params.get('chatId') || 'telegram:85308772';
+
+    function apiUrl(path) {
+      const sep = path.includes('?') ? '&' : '?';
+      return path + (TOKEN ? `${sep}token=${TOKEN}` : '');
+    }
+
+    async function api(path) {
+      const res = await fetch(apiUrl(path));
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json();
+    }
+
+    // Tab switching
+    function switchTab(name) {
+      document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.remove('hidden');
+      document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+
+      // Load data for tab
+      if (name === 'conversation') loadConversation();
+      if (name === 'memories') loadMemories();
+      if (name === 'tasks') loadTasks();
+      if (name === 'hivemind') loadHiveMind();
+      if (name === 'costs') loadCosts();
+    }
+
+    // Formatters
+    function formatCost(usd) { return '$' + usd.toFixed(2); }
+    function formatTokens(n) { return Math.round(n / 1000) + 'k'; }
+    function formatTime(unix) {
+      const d = new Date(unix * 1000);
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    function formatRelative(unix) {
+      const diff = Math.floor(Date.now() / 1000) - unix;
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
+
+    // Data loaders
+    async function loadInfo() {
+      try {
+        const data = await api('/api/info');
+        document.getElementById('botName').textContent = data.name + ' Dashboard';
+        const upH = Math.floor(data.uptime / 3600);
+        const upM = Math.floor((data.uptime % 3600) / 60);
+        document.getElementById('botMeta').textContent =
+          `PID ${data.pid} | Uptime ${upH}h ${upM}m | ${data.nodeVersion}`;
+      } catch (e) { console.error('info:', e); }
+    }
+
+    async function loadHealth() {
+      try {
+        const data = await api(`/api/health?chatId=${CHAT_ID}`);
+        const el = document.getElementById('healthInfo');
+        const lines = [];
+
+        lines.push(`<div class="flex justify-between"><span>Session</span><span class="font-mono text-xs">${data.sessionId ? data.sessionId.slice(0, 12) + '...' : 'none'}</span></div>`);
+
+        if (data.context) {
+          const color = data.context.pct > 75 ? 'text-red-400' : data.context.pct > 50 ? 'text-yellow-400' : 'text-green-400';
+          lines.push(`<div class="flex justify-between"><span>Context</span><span class="${color}">${data.context.pct}% (~${formatTokens(data.context.lastCacheRead)})</span></div>`);
+          document.getElementById('contextPct').textContent = data.context.pct + '%';
+          document.getElementById('contextPct').className = 'stat-value ' + color;
+        } else {
+          document.getElementById('contextPct').textContent = '--';
+        }
+
+        if (data.modelOverride) {
+          const short = data.modelOverride.replace('claude-', '').replace(/-\d.*/, '');
+          lines.push(`<div class="flex justify-between"><span>Model Override</span><span class="badge badge-blue">${short}</span></div>`);
+        }
+
+        lines.push(`<div class="flex justify-between"><span>Processing</span><span>${data.isProcessing ? '<span class="badge badge-yellow">Active</span>' : '<span class="badge badge-green">Idle</span>'}</span></div>`);
+
+        if (data.sessionSummary) {
+          const s = data.sessionSummary;
+          lines.push(`<div class="flex justify-between"><span>Session Turns</span><span>${s.turns}</span></div>`);
+          lines.push(`<div class="flex justify-between"><span>Session Cost</span><span>${formatCost(s.totalCostUsd)}</span></div>`);
+          if (s.compactions > 0) {
+            lines.push(`<div class="flex justify-between"><span>Compactions</span><span class="text-yellow-400">${s.compactions}</span></div>`);
+          }
+        }
+
+        const mem = data.memoryStats;
+        document.getElementById('memoryCount').textContent = mem.total;
+        lines.push(`<div class="flex justify-between"><span>Memories</span><span>${mem.semantic} semantic / ${mem.episodic} episodic</span></div>`);
+
+        el.innerHTML = lines.join('');
+      } catch (e) {
+        document.getElementById('healthInfo').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadTokenStats() {
+      try {
+        const data = await api(`/api/tokens?chatId=${CHAT_ID}`);
+        document.getElementById('costToday').textContent = formatCost(data.day.totalCostUsd);
+        document.getElementById('turnsToday').textContent = data.day.turns;
+      } catch (e) { console.error('tokens:', e); }
+    }
+
+    async function loadActiveRequests() {
+      try {
+        const data = await api('/api/active-requests');
+        const el = document.getElementById('activeRequests');
+        if (data.requests.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No active requests</p>';
+          return;
+        }
+        el.innerHTML = data.requests.map(r => `
+          <div class="task-row">
+            <div>
+              <span class="badge badge-yellow">Processing</span>
+              <span class="ml-2">${escapeHtml(truncate(r.user_message, 100))}</span>
+            </div>
+            <span class="text-xs text-slate-500">${formatRelative(r.started_at)}</span>
+          </div>
+        `).join('');
+      } catch (e) { console.error('active:', e); }
+    }
+
+    async function loadRecentHiveMind() {
+      try {
+        const data = await api('/api/hive-mind?limit=5');
+        const el = document.getElementById('recentHiveMind');
+        if (data.entries.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No hive mind activity yet</p>';
+          return;
+        }
+        el.innerHTML = data.entries.map(e => `
+          <div class="hive-entry">
+            <div class="flex justify-between">
+              <span class="badge badge-blue">${escapeHtml(e.agent_id)}</span>
+              <span class="text-xs text-slate-500">${formatRelative(e.created_at)}</span>
+            </div>
+            <div class="mt-1"><strong>${escapeHtml(e.action)}</strong>: ${escapeHtml(e.summary)}</div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('recentHiveMind').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadUpcomingTasks() {
+      try {
+        const data = await api('/api/tasks');
+        const el = document.getElementById('upcomingTasks');
+        if (data.tasks.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No scheduled tasks</p>';
+          return;
+        }
+        el.innerHTML = data.tasks.slice(0, 5).map(t => `
+          <div class="task-row">
+            <div>
+              <span class="badge ${t.status === 'active' ? 'badge-green' : 'badge-yellow'}">${t.status}</span>
+              <span class="ml-2">${escapeHtml(truncate(t.prompt, 60))}</span>
+            </div>
+            <div class="text-xs text-slate-500">
+              <div>${t.schedule}</div>
+              <div>Next: ${formatTime(t.next_run)}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('upcomingTasks').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadConversation() {
+      try {
+        const data = await api(`/api/conversation?chatId=${CHAT_ID}&limit=20`);
+        const el = document.getElementById('conversationLog');
+        if (data.turns.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No conversation history</p>';
+          return;
+        }
+        // Turns come in DESC order, reverse for display
+        const turns = [...data.turns].reverse();
+        el.innerHTML = turns.map(t => {
+          const cls = t.role === 'user' ? 'convo-user' : 'convo-assistant';
+          const label = t.role === 'user' ? 'You' : 'Assistant';
+          const content = escapeHtml(truncate(t.content, 500));
+          return `<div class="${cls}"><div class="text-xs text-slate-500 mb-1">${label} - ${formatTime(t.created_at)}</div><div style="white-space:pre-wrap">${content}</div></div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('conversationLog').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadMemories() {
+      try {
+        const data = await api(`/api/memories?chatId=${CHAT_ID}&limit=30`);
+        document.getElementById('memoryStatsDetail').textContent =
+          `${data.stats.semantic} semantic, ${data.stats.episodic} episodic (${data.stats.total} total)`;
+
+        const el = document.getElementById('memoryList');
+        if (data.recent.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No memories</p>';
+          return;
+        }
+        el.innerHTML = data.recent.map(m => `
+          <div class="memory-item ${m.sector}">
+            <div class="flex justify-between text-xs">
+              <span class="badge ${m.sector === 'semantic' ? 'badge-blue' : 'badge-green'}">${m.sector}</span>
+              <span class="text-slate-500">salience: ${m.salience.toFixed(2)} | ${formatRelative(m.accessed_at)}</span>
+            </div>
+            <div class="mt-1 text-sm">${escapeHtml(truncate(m.content, 300))}</div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('memoryList').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadTasks() {
+      try {
+        const data = await api('/api/tasks');
+        const el = document.getElementById('taskList');
+        if (data.tasks.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No scheduled tasks</p>';
+          return;
+        }
+        el.innerHTML = data.tasks.map(t => `
+          <div class="task-row">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="badge ${t.status === 'active' ? 'badge-green' : 'badge-yellow'}">${t.status}</span>
+                <span class="font-mono text-xs text-slate-400">${t.id}</span>
+                <span class="text-xs text-slate-500">${t.schedule}</span>
+              </div>
+              <div class="text-sm">${escapeHtml(truncate(t.prompt, 120))}</div>
+              ${t.last_run ? `<div class="text-xs text-slate-500 mt-1">Last run: ${formatTime(t.last_run)}</div>` : ''}
+            </div>
+            <div class="text-right text-xs text-slate-400 ml-4">
+              <div>Next: ${formatTime(t.next_run)}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('taskList').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadHiveMind() {
+      try {
+        const data = await api('/api/hive-mind?limit=50');
+        const el = document.getElementById('hiveMindFull');
+        if (data.entries.length === 0) {
+          el.innerHTML = '<p class="text-slate-400">No hive mind activity yet. Agents will log their actions here.</p>';
+          return;
+        }
+        el.innerHTML = data.entries.map(e => `
+          <div class="hive-entry">
+            <div class="flex justify-between items-center">
+              <div>
+                <span class="badge badge-blue">${escapeHtml(e.agent_id)}</span>
+                <strong class="ml-2">${escapeHtml(e.action)}</strong>
+              </div>
+              <span class="text-xs text-slate-500">${formatTime(e.created_at)}</span>
+            </div>
+            <div class="mt-1 text-sm text-slate-300">${escapeHtml(e.summary)}</div>
+            ${e.artifacts ? `<div class="mt-1 text-xs text-slate-500">Artifacts: ${escapeHtml(e.artifacts)}</div>` : ''}
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('hiveMindFull').innerHTML = '<p class="text-red-400">Failed to load</p>';
+      }
+    }
+
+    async function loadCosts() {
+      try {
+        const data = await api(`/api/tokens?chatId=${CHAT_ID}`);
+
+        const fmt = (s) => `
+          <div class="space-y-1">
+            <div class="flex justify-between"><span>Turns</span><span>${s.turns}</span></div>
+            <div class="flex justify-between"><span>Input</span><span>${formatTokens(s.totalInputTokens)}</span></div>
+            <div class="flex justify-between"><span>Output</span><span>${formatTokens(s.totalOutputTokens)}</span></div>
+            <div class="flex justify-between font-semibold"><span>Cost</span><span>${formatCost(s.totalCostUsd)}</span></div>
+          </div>
+        `;
+
+        document.getElementById('cost24h').innerHTML = fmt(data.day);
+        document.getElementById('cost7d').innerHTML = fmt(data.week);
+        document.getElementById('cost30d').innerHTML = fmt(data.month);
+
+        const modelEl = document.getElementById('costByModel');
+        if (data.byModel.length === 0) {
+          modelEl.innerHTML = '<p class="text-slate-400">No model data</p>';
+        } else {
+          modelEl.innerHTML = data.byModel.map(m => `
+            <div class="task-row">
+              <span class="font-mono">${m.model || 'unknown'}</span>
+              <span>${m.turns} turns | ${formatCost(m.totalCostUsd)}</span>
+            </div>
+          `).join('');
+        }
+      } catch (e) {
+        console.error('costs:', e);
+      }
+    }
+
+    // Refresh all
+    async function refreshAll() {
+      document.getElementById('lastRefresh').textContent = 'Refreshing...';
+      await Promise.all([
+        loadInfo(),
+        loadHealth(),
+        loadTokenStats(),
+        loadActiveRequests(),
+        loadRecentHiveMind(),
+        loadUpcomingTasks(),
+      ]);
+      document.getElementById('lastRefresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }
+
+    // Init
+    refreshAll();
+    setInterval(refreshAll, 30000); // Auto-refresh every 30s
+  </script>
+</body>
+</html>
