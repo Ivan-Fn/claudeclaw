@@ -120,103 +120,79 @@ export class TelegramChannel implements MessageChannel {
       logger.warn({ err }, 'Pre-start deleteWebhook cleanup failed (non-fatal)');
     }
 
-    // Start long-polling with retry on 409 Conflict.
-    // Grammy's 30s long-poll timeout means a previous process's connection
-    // can linger after restart, causing 409. We retry a few times with backoff.
-    const MAX_START_RETRIES = 3;
-    for (let attempt = 1; attempt <= MAX_START_RETRIES; attempt++) {
-      try {
-        await this.bot.start({
-          drop_pending_updates: false,
-          onStart: async (botInfo) => {
-            logger.info({ username: botInfo.username }, 'Telegram bot started');
-            if (NOTIFY_ON_RESTART) {
-              const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-              const notifyIds = NOTIFY_ON_RESTART_IDS.length > 0 ? NOTIFY_ON_RESTART_IDS : ALLOWED_CHAT_IDS;
-              for (const chatId of notifyIds) {
-                try {
-                  const cid = compositeId('telegram', chatId);
-                  const recent = getRecentConversation(cid, 2);
-                  const lastUserMsg = recent.find(t => t.role === 'user');
-                  let msg = `Bot restarted at ${now}`;
-                  if (lastUserMsg) {
-                    const preview = lastUserMsg.content.length > 120
-                      ? lastUserMsg.content.slice(0, 120) + '...'
-                      : lastUserMsg.content;
-                    msg += `\nLast topic: ${preview}`;
-                  }
-                  await this.bot.api.sendMessage(chatId, msg);
-                } catch {
-                  // Best effort
-                }
+    // Start long-polling (blocks until stopped).
+    // If 409 Conflict occurs, the process exits and launchd restarts it.
+    // The launchd plist should use ThrottleInterval >= 45s to outlast
+    // Grammy's 30s long-poll timeout before the next restart.
+    await this.bot.start({
+      drop_pending_updates: false,
+      onStart: async (botInfo) => {
+        logger.info({ username: botInfo.username }, 'Telegram bot started');
+        if (NOTIFY_ON_RESTART) {
+          const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const notifyIds = NOTIFY_ON_RESTART_IDS.length > 0 ? NOTIFY_ON_RESTART_IDS : ALLOWED_CHAT_IDS;
+          for (const chatId of notifyIds) {
+            try {
+              const cid = compositeId('telegram', chatId);
+              const recent = getRecentConversation(cid, 2);
+              const lastUserMsg = recent.find(t => t.role === 'user');
+              let msg = `Bot restarted at ${now}`;
+              if (lastUserMsg) {
+                const preview = lastUserMsg.content.length > 120
+                  ? lastUserMsg.content.slice(0, 120) + '...'
+                  : lastUserMsg.content;
+                msg += `\nLast topic: ${preview}`;
               }
+              await this.bot.api.sendMessage(chatId, msg);
+            } catch {
+              // Best effort
             }
-
-            // Auto-resume: check for in-flight requests interrupted by restart
-            if (MAX_RESUME_ATTEMPTS > 0) {
-              const staleRequests = getActiveRequests();
-              for (const req of staleRequests) {
-                if (req.channel_id !== 'telegram') continue;
-
-                const sessionId = getSession(req.chat_id);
-                if (!sessionId) {
-                  logger.info({ chatId: req.chat_id }, 'No session for stale active request, clearing');
-                  clearActiveRequest(req.chat_id);
-                  continue;
-                }
-
-                const resumeCount = incrementResumeCount(req.chat_id);
-                if (resumeCount > MAX_RESUME_ATTEMPTS) {
-                  logger.warn({ chatId: req.chat_id, resumeCount }, 'Max resume attempts reached');
-                  try {
-                    await this.bot.api.sendMessage(
-                      req.raw_chat_id,
-                      `I was working on something when I restarted but couldn't auto-resume after ${MAX_RESUME_ATTEMPTS} attempts. Send "continue" to resume manually.`,
-                    );
-                  } catch { /* best effort */ }
-                  clearActiveRequest(req.chat_id);
-                  continue;
-                }
-
-                const preview = req.user_message.length > 80
-                  ? req.user_message.slice(0, 80) + '...'
-                  : req.user_message;
-                logger.info({ chatId: req.chat_id, resumeCount, preview }, 'Auto-resuming interrupted request');
-
-                try {
-                  await this.bot.api.sendMessage(req.raw_chat_id, 'Resuming interrupted task...');
-                } catch { /* best effort */ }
-
-                const cid = req.chat_id;
-                const rawChatId = req.raw_chat_id;
-                const resumeMessage = `The bot restarted while you were working on a task. The user's original request was: "${req.user_message}"\n\nContinue where you left off. Complete the task and report what was done.`;
-                void enqueue(cid, () => processMessage(this, cid, rawChatId, resumeMessage, false, true));
-              }
-            }
-          },
-        });
-        break; // bot.start() blocks until stopped, so break only on clean exit
-      } catch (err) {
-        const is409 = err instanceof Error && err.message.includes('409');
-        if (is409 && attempt < MAX_START_RETRIES) {
-          // Wait longer than Grammy's 30s poll timeout so the old connection expires.
-          const delaySec = 35;
-          logger.warn({ attempt, delaySec }, 'Telegram 409 conflict, waiting for old poll to expire');
-          await new Promise((r) => setTimeout(r, delaySec * 1000));
-          // Re-create the bot instance to get a fresh polling state
-          this.bot = new Bot(TELEGRAM_BOT_TOKEN!);
-          this.setupMiddleware();
-          this.setupCommands();
-          this.setupMessageHandlers();
-          // Clear lingering session again before retry
-          try {
-            await this.bot.api.deleteWebhook({ drop_pending_updates: false });
-          } catch { /* best effort */ }
-          continue;
+          }
         }
-        throw err;
-      }
-    }
+
+        // Auto-resume: check for in-flight requests interrupted by restart
+        if (MAX_RESUME_ATTEMPTS > 0) {
+          const staleRequests = getActiveRequests();
+          for (const req of staleRequests) {
+            if (req.channel_id !== 'telegram') continue;
+
+            const sessionId = getSession(req.chat_id);
+            if (!sessionId) {
+              logger.info({ chatId: req.chat_id }, 'No session for stale active request, clearing');
+              clearActiveRequest(req.chat_id);
+              continue;
+            }
+
+            const resumeCount = incrementResumeCount(req.chat_id);
+            if (resumeCount > MAX_RESUME_ATTEMPTS) {
+              logger.warn({ chatId: req.chat_id, resumeCount }, 'Max resume attempts reached');
+              try {
+                await this.bot.api.sendMessage(
+                  req.raw_chat_id,
+                  `I was working on something when I restarted but couldn't auto-resume after ${MAX_RESUME_ATTEMPTS} attempts. Send "continue" to resume manually.`,
+                );
+              } catch { /* best effort */ }
+              clearActiveRequest(req.chat_id);
+              continue;
+            }
+
+            const preview = req.user_message.length > 80
+              ? req.user_message.slice(0, 80) + '...'
+              : req.user_message;
+            logger.info({ chatId: req.chat_id, resumeCount, preview }, 'Auto-resuming interrupted request');
+
+            try {
+              await this.bot.api.sendMessage(req.raw_chat_id, 'Resuming interrupted task...');
+            } catch { /* best effort */ }
+
+            const cid = req.chat_id;
+            const rawChatId = req.raw_chat_id;
+            const resumeMessage = `The bot restarted while you were working on a task. The user's original request was: "${req.user_message}"\n\nContinue where you left off. Complete the task and report what was done.`;
+            void enqueue(cid, () => processMessage(this, cid, rawChatId, resumeMessage, false, true));
+          }
+        }
+      },
+    });
   }
 
   async stop(): Promise<void> {
