@@ -74,7 +74,9 @@ export function enqueue<T>(
     });
 
   // Store the void-typed chain for sequencing, then clean up the entry
-  const chain = next.then(() => {}, () => {});
+  const chain = next.then(() => {}, (err) => {
+    logger.error({ err, chatId }, 'Unhandled error in queue task');
+  });
   chatQueues.set(chatId, chain);
 
   // Remove the map entry once the chain settles (prevents unbounded growth)

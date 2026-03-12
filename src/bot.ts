@@ -158,28 +158,27 @@ export async function processMessage(
   respondWithVoice = false,
   skipLog = false,
 ): Promise<void> {
-  // Track this request as in-flight (for auto-resume if bot restarts mid-task).
-  // Skip re-registering on resumed messages -- the row already exists and
-  // re-inserting would reset resume_count to 0, defeating the max-attempts guard.
-  if (!skipLog) {
-    setActiveRequest(cid, channel.channelId, rawChatId, userMessage);
-  }
-
-  // Build memory context
-  const memoryContext = buildMemoryContext(cid, userMessage);
-  const fullMessage = memoryContext + userMessage;
-
-  // Get or create session + model override
-  const sessionId = getSession(cid);
-  const modelOverride = getModelOverride(cid);
-
-  // Create abort controller
-  const abortController = new AbortController();
-  activeAborts.set(cid, abortController);
-
-  // Start typing indicator inside try so finally always cleans it up
+  // Start typing indicator outside try so it's always available for finally
   const stopTyping = channel.startTyping(rawChatId);
   try {
+    // Track this request as in-flight (for auto-resume if bot restarts mid-task).
+    // Skip re-registering on resumed messages -- the row already exists and
+    // re-inserting would reset resume_count to 0, defeating the max-attempts guard.
+    if (!skipLog) {
+      setActiveRequest(cid, channel.channelId, rawChatId, userMessage);
+    }
+
+    // Build memory context
+    const memoryContext = buildMemoryContext(cid, userMessage);
+    const fullMessage = memoryContext + userMessage;
+
+    // Get or create session + model override
+    const sessionId = getSession(cid);
+    const modelOverride = getModelOverride(cid);
+
+    // Create abort controller
+    const abortController = new AbortController();
+    activeAborts.set(cid, abortController);
     // 5. Run agent (with auto-continue on timeout)
     let currentMessage = fullMessage;
     let currentSessionId = sessionId;
