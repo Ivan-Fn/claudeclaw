@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { PID_FILE, PROJECT_ROOT, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, BOT_DISPLAY_NAME } from './config.js';
+import { PID_FILE, PROJECT_ROOT, TELEGRAM_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, BOT_DISPLAY_NAME, BOT_NAME } from './config.js';
 import { logger } from './logger.js';
 import { initDatabase, closeDatabase } from './db.js';
 import { escapeHtml } from './channels/format-telegram.js';
@@ -108,7 +108,7 @@ const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // startup window, the bot stays down instead of looping forever.
 
 const MAX_CRASH_RETRIES = 3;
-const CRASH_FILE = join(PROJECT_ROOT, 'store', '.crash-count');
+const CRASH_FILE = join(PROJECT_ROOT, 'store', `${BOT_NAME}.crash-count`);
 const CRASH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const STARTUP_HEALTHY_DELAY_MS = 15_000;
 
