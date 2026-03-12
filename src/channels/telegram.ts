@@ -129,7 +129,7 @@ export class TelegramChannel implements MessageChannel {
       onStart: async (botInfo) => {
         logger.info({ username: botInfo.username }, 'Telegram bot started');
         if (NOTIFY_ON_RESTART) {
-          const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/New_York' });
           const notifyIds = NOTIFY_ON_RESTART_IDS.length > 0 ? NOTIFY_ON_RESTART_IDS : ALLOWED_CHAT_IDS;
           for (const chatId of notifyIds) {
             try {
@@ -588,7 +588,9 @@ export class TelegramChannel implements MessageChannel {
     bot.command('restart', async (ctx) => {
       logger.info({ compositeId: this.cid(ctx) }, 'Restart requested via Telegram');
       await ctx.reply('Restarting bot...');
-      setTimeout(() => process.exit(0), 500);
+      // Exit non-zero so launchd KeepAlive (SuccessfulExit=false) restarts us.
+      // Exit 0 is reserved for crash guard "stay down" signal.
+      setTimeout(() => process.exit(1), 500);
     });
 
     bot.command('rebuild', async (ctx) => {
@@ -611,7 +613,8 @@ export class TelegramChannel implements MessageChannel {
         });
         const summary = output.trim().split('\n').slice(-5).join('\n');
         await ctx.reply(`Build done:\n${summary}\n\nRestarting...`);
-        setTimeout(() => process.exit(0), 500);
+        // Exit non-zero so launchd KeepAlive (SuccessfulExit=false) restarts us.
+        setTimeout(() => process.exit(1), 500);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error({ err: msg }, 'Rebuild failed');
