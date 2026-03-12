@@ -456,11 +456,12 @@ export function searchMemories(
   query: string,
   limit = 3,
 ): Memory[] {
-  // Sanitize for FTS5: keep alphanumeric + spaces, split, add * suffix
+  // Sanitize for FTS5: keep alphanumeric + spaces, strip reserved keywords, add * prefix
+  const FTS_RESERVED = new Set(['AND', 'OR', 'NOT']);
   const sanitized = query
     .replace(/[^\p{L}\p{N}\s]/gu, '')
     .split(/\s+/)
-    .filter((w) => w.length >= 2)
+    .filter((w) => w.length >= 2 && !FTS_RESERVED.has(w.toUpperCase()))
     .map((w) => `${w}*`)
     .join(' ');
 
