@@ -11,6 +11,7 @@ import {
   clearSession,
   insertMemory,
   searchMemories,
+  sanitizeFtsQuery,
   getRecentMemories,
   touchMemory,
   decayAllMemories,
@@ -140,6 +141,28 @@ describe('memories', () => {
 
 // ── FTS5 Search ───────────────────────────────────────────────────────────
 
+describe('sanitizeFtsQuery', () => {
+  it('normalizes punctuation into searchable prefix tokens', () => {
+    expect(sanitizeFtsQuery('test (with) "special" chars!')).toBe('test* with* special* chars*');
+  });
+
+  it('drops boolean operators when better search terms exist', () => {
+    expect(sanitizeFtsQuery('fix OR workaround')).toBe('fix* workaround*');
+    expect(sanitizeFtsQuery('this AND that')).toBe('this* that*');
+  });
+
+  it('keeps operator-like words searchable when they are the only terms', () => {
+    expect(sanitizeFtsQuery('NOT')).toBe('not*');
+    expect(sanitizeFtsQuery('AND')).toBe('and*');
+    expect(sanitizeFtsQuery('OR')).toBe('or*');
+  });
+
+  it('keeps NEAR as a normal search term (it is not an FTS5 crash case)', () => {
+    expect(sanitizeFtsQuery('Find coffee near Bryant Park')).toBe('find* coffee* near* bryant* park*');
+    expect(sanitizeFtsQuery('NEAR')).toBe('near*');
+  });
+});
+
 describe('FTS5 search', () => {
   it('finds memories by keyword', () => {
     insertMemory('chat1', 'The quick brown fox jumps over the lazy dog', 'semantic');
@@ -175,13 +198,35 @@ describe('FTS5 search', () => {
     expect(results).toHaveLength(3);
   });
 
-  it('handles special characters in query without throwing', () => {
+  it('handles the production-like reserved-word queries without throwing', () => {
     insertMemory('chat1', 'Test memory content', 'semantic');
-    // Should not throw on special FTS5 characters like quotes, parens, etc.
+    insertMemory('chat1', 'Not every workaround is pretty', 'semantic');
+    insertMemory('chat1', 'Fix or workaround notes', 'semantic');
+
     expect(() => searchMemories('chat1', 'test (with) "special" chars!')).not.toThrow();
     expect(() => searchMemories('chat1', '"unclosed quote')).not.toThrow();
+    expect(() => searchMemories('chat1', 'NOT')).not.toThrow();
+    expect(() => searchMemories('chat1', 'this AND that')).not.toThrow();
+    expect(() => searchMemories('chat1', 'fix OR workaround')).not.toThrow();
     expect(() => searchMemories('chat1', 'NEAR/3')).not.toThrow();
     expect(() => searchMemories('chat1', '***')).not.toThrow();
+  });
+
+  it('keeps all-operator queries searchable instead of turning them into hard failures', () => {
+    insertMemory('chat1', 'Not every failure is fatal', 'semantic');
+    insertMemory('chat1', 'And then there was one', 'semantic');
+    insertMemory('chat1', 'Fix or workaround memo', 'semantic');
+
+    expect(searchMemories('chat1', 'NOT')).toHaveLength(1);
+    expect(searchMemories('chat1', 'AND')).toHaveLength(1);
+    expect(searchMemories('chat1', 'OR')).toHaveLength(1);
+  });
+
+  it('handles the auto-resume prompt shape without throwing', () => {
+    insertMemory('chat1', 'Restart recovery notes', 'semantic');
+
+    const resumeMessage = 'The bot restarted while you were working on a task. The user\'s original request was: "Should I ship this OR wait?"\n\nContinue where you left off. Complete the task and report what was done.';
+    expect(() => searchMemories('chat1', resumeMessage)).not.toThrow();
   });
 
   it('returns empty for empty/short query', () => {
@@ -211,6 +256,13 @@ describe('FTS5 search', () => {
 
     expect(searchMemories('chat1', 'xyzabc')).toHaveLength(0);
     expect(searchMemories('chat1', 'qwerty')).toHaveLength(1);
+  });
+
+  it('returns empty if the FTS query fails at runtime', () => {
+    insertMemory('chat1', 'Test memory content', 'semantic');
+    getDb().exec('DROP TABLE memories_fts');
+
+    expect(searchMemories('chat1', 'test')).toEqual([]);
   });
 });
 

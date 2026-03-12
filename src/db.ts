@@ -4,6 +4,8 @@ import { dirname } from 'node:path';
 import { DB_PATH, MEMORY_DECAY_FACTOR, MEMORY_MIN_SALIENCE, SHARED_HIVEMIND_DB } from './config.js';
 import { logger } from './logger.js';
 
+const FTS_OPERATOR_TOKENS = new Set(['and', 'or', 'not']);
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface Memory {
@@ -456,26 +458,43 @@ export function searchMemories(
   query: string,
   limit = 3,
 ): Memory[] {
-  // Sanitize for FTS5: keep alphanumeric + spaces, strip reserved keywords, add * prefix
-  const FTS_RESERVED = new Set(['AND', 'OR', 'NOT']);
-  const sanitized = query
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .split(/\s+/)
-    .filter((w) => w.length >= 2 && !FTS_RESERVED.has(w.toUpperCase()))
-    .map((w) => `${w}*`)
-    .join(' ');
-
+  const sanitized = sanitizeFtsQuery(query);
   if (!sanitized) return [];
 
-  return getDb()
-    .prepare(
-      `SELECT m.* FROM memories m
-       JOIN memories_fts f ON m.id = f.rowid
-       WHERE f.content MATCH ? AND m.chat_id = ?
-       ORDER BY rank
-       LIMIT ?`,
-    )
-    .all(sanitized, chatId, limit) as Memory[];
+  try {
+    return getDb()
+      .prepare(
+        `SELECT m.* FROM memories m
+         JOIN memories_fts f ON m.id = f.rowid
+         WHERE f.content MATCH ? AND m.chat_id = ?
+         ORDER BY rank
+         LIMIT ?`,
+      )
+      .all(sanitized, chatId, limit) as Memory[];
+  } catch (err) {
+    logger.warn(
+      { err, chatId, query: query.slice(0, 200), sanitized },
+      'Memory FTS search failed; continuing without search results',
+    );
+    return [];
+  }
+}
+
+export function sanitizeFtsQuery(query: string): string {
+  const tokens = query
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+
+  if (tokens.length === 0) return '';
+
+  // Strip boolean operators when there are other searchable terms, but keep
+  // them for all-operator queries so "NOT" still becomes a valid token search.
+  const nonOperators = tokens.filter((w) => !FTS_OPERATOR_TOKENS.has(w));
+  const searchable = nonOperators.length > 0 ? nonOperators : tokens;
+
+  return searchable.map((w) => `${w}*`).join(' ');
 }
 
 export function getRecentMemories(chatId: string, limit = 5): Memory[] {

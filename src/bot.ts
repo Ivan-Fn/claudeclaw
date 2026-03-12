@@ -158,6 +158,7 @@ export async function processMessage(
   respondWithVoice = false,
   skipLog = false,
 ): Promise<void> {
+  logger.info({ cid, channel: channel.channelId, msgLen: userMessage.length }, 'processMessage started');
   // Start typing indicator outside try so it's always available for finally
   const stopTyping = channel.startTyping(rawChatId);
   try {
@@ -297,6 +298,7 @@ export async function processMessage(
     stopTyping();
     activeAborts.delete(cid);
     clearActiveRequest(cid);
+    logger.info({ cid }, 'processMessage finished');
   }
 }
 

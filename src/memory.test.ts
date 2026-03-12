@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { initDatabase, closeDatabase, getRecentMemories, insertMemory } from './db.js';
+import { initDatabase, closeDatabase, getDb, getRecentMemories, insertMemory } from './db.js';
 import { buildMemoryContext, saveConversationTurn, runDecaySweep } from './memory.js';
 
 const TMP = join(tmpdir(), 'master-agent-test-memory');
@@ -48,6 +48,15 @@ describe('buildMemoryContext', () => {
     // Should appear once, not in both sections
     const count = (ctx.match(/coding patterns/g) ?? []).length;
     expect(count).toBe(1);
+  });
+
+  it('continues building context when FTS lookup fails', () => {
+    insertMemory('chat1', 'A recent note that should still appear', 'episodic');
+    getDb().exec('DROP TABLE memories_fts');
+
+    const ctx = buildMemoryContext('chat1', 'NOT');
+    expect(ctx).toContain('Recent Memories');
+    expect(ctx).toContain('recent note');
   });
 });
 
