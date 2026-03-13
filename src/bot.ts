@@ -26,7 +26,7 @@ import {
   getModelOverride,
   logToHiveMind,
 } from './db.js';
-import { BOT_NAME } from './config.js';
+import { BOT_NAME, QUICK_ACK_ENABLED } from './config.js';
 import { voiceCapabilities, synthesizeSpeech } from './voice.js';
 import type { MessageChannel } from './channels/types.js';
 
@@ -177,13 +177,25 @@ export async function processMessage(
     const sessionId = getSession(cid);
     const modelOverride = getModelOverride(cid);
 
+    // Quick ack: when the agent produces text and then starts tool calls,
+    // send that first text to the user immediately so they see the LLM's
+    // plan before waiting for the full execution to complete.
+    const onFirstText = QUICK_ACK_ENABLED
+      ? (text: string) => {
+          // Fire-and-forget: don't block the agent on Telegram send
+          channel.send(rawChatId, text).catch((err) => {
+            logger.warn({ err }, 'Failed to send quick ack');
+          });
+        }
+      : undefined;
+
     // Create abort controller
     const abortController = new AbortController();
     activeAborts.set(cid, abortController);
     // 5. Run agent (with auto-continue on timeout)
     let currentMessage = fullMessage;
     let currentSessionId = sessionId;
-    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, abortController, modelOverride);
+    let result = await runAgentWithAbort(currentMessage, currentSessionId, rawChatId, channel.channelId, abortController, modelOverride, onFirstText);
 
     // Auto-continue: if the agent timed out mid-work, resume automatically
     for (let retry = 0; retry < MAX_TIMEOUT_RETRIES && result.error === 'timeout'; retry++) {
@@ -311,6 +323,7 @@ async function runAgentWithAbort(
   channelId: string,
   abortController: AbortController,
   model?: string,
+  onFirstText?: (text: string) => void,
 ) {
   // Pass the channel-specific chat ID env var to the agent subprocess
   const envKey = `${channelId.toUpperCase()}_CHAT_ID`;
@@ -322,5 +335,6 @@ async function runAgentWithAbort(
   };
   if (sessionId !== undefined) agentOpts.sessionId = sessionId;
   if (model) agentOpts.model = model;
+  if (onFirstText) agentOpts.onFirstText = onFirstText;
   return runAgent(agentOpts);
 }

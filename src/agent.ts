@@ -64,6 +64,13 @@ export interface RunAgentOptions {
   message: string;
   sessionId?: string;
   onTyping?: () => void;
+  /**
+   * Called with the agent's first text output when it also has tool calls
+   * queued (i.e., the agent acknowledged the request and is about to start
+   * working). This lets the caller send an early preview to the user.
+   * Only fires once per runAgent() call.
+   */
+  onFirstText?: (text: string) => void;
   abortSignal?: AbortSignal;
   /** Extra environment variables passed to the Claude Code subprocess. */
   env?: Record<string, string>;
@@ -192,7 +199,7 @@ async function refreshGitHubAppToken(): Promise<void> {
 // ── Run Agent ──────────────────────────────────────────────────────────
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
-  const { message, sessionId, onTyping, abortSignal, env: extraEnv, model: perCallModel } = opts;
+  const { message, sessionId, onTyping, onFirstText, abortSignal, env: extraEnv, model: perCallModel } = opts;
   const startTime = Date.now();
 
   // Check daily cost limit before starting
@@ -307,8 +314,29 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       },
     });
 
+    let firstTextFired = false;
+
     for await (const msg of q) {
       onTyping?.();
+
+      // Quick ack: extract text from the first assistant message that also
+      // has tool calls (meaning the agent is about to start working).
+      if (!firstTextFired && onFirstText && msg.type === 'assistant') {
+        const betaMsg = (msg as { message?: { content?: Array<{ type: string; text?: string }> } }).message;
+        if (betaMsg?.content) {
+          const hasToolUse = betaMsg.content.some(b => b.type === 'tool_use');
+          if (hasToolUse) {
+            const textParts = betaMsg.content
+              .filter((b): b is { type: 'text'; text: string } => b.type === 'text' && !!b.text)
+              .map(b => b.text);
+            const firstText = textParts.join('\n').trim();
+            if (firstText) {
+              firstTextFired = true;
+              onFirstText(firstText);
+            }
+          }
+        }
+      }
 
       handleMessage(msg, {
         setSessionId: (id) => { resolvedSessionId = id; },

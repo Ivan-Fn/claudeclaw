@@ -135,6 +135,11 @@ export const AGENT_SUBAGENTS: Record<string, SubagentDefinition> = (() => {
 // Daily cost limit in USD (0 = unlimited)
 export const AGENT_DAILY_COST_LIMIT_USD = Number(env['AGENT_DAILY_COST_LIMIT_USD']) || 0;
 
+// Quick Ack: send the agent's first text response to Telegram immediately
+// when the agent is about to start tool calls (so the user sees the LLM's
+// plan before waiting for the full execution). Set to 'false' to disable.
+export const QUICK_ACK_ENABLED = (env['QUICK_ACK_ENABLED'] ?? 'true').trim().toLowerCase() !== 'false';
+
 // Slack
 export const SLACK_BOT_TOKEN = env['SLACK_BOT_TOKEN'] ?? '';
 export const SLACK_APP_TOKEN = env['SLACK_APP_TOKEN'] ?? '';
