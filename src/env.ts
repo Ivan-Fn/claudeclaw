@@ -19,7 +19,8 @@ export function readEnvFile(envPath?: string): Record<string, string> {
   }
 
   // Overlay with .env file values (file takes precedence)
-  const filePath = envPath ?? join(PROJECT_ROOT, '.env');
+  // DOTENV_PATH env var allows pointing to an external .env (e.g., for multi-instance setups)
+  const filePath = envPath ?? process.env['DOTENV_PATH'] ?? join(PROJECT_ROOT, '.env');
   try {
     const raw = readFileSync(filePath, 'utf8');
     for (const line of raw.split('\n')) {

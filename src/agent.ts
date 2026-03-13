@@ -2,7 +2,7 @@ import { createSign } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS, PROJECT_ROOT } from './config.js';
+import { AGENT_CWD, CLAUDE_SYSTEM_PROMPT_APPEND, MAX_TURNS, AGENT_TIMEOUT_MS, AGENT_DAILY_COST_LIMIT_USD, SETTINGS_SOURCES, AGENT_FORWARD_ENV, AGENT_MCP_SERVERS, AGENT_MODEL, AGENT_SUBAGENTS, PROJECT_ROOT, BOT_CLAUDE_MD } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -90,9 +90,10 @@ function loadBotConfigAppend(): string {
 
   const parts: string[] = [];
 
-  // Inject bot's CLAUDE.md
+  // Inject bot's CLAUDE.md (BOT_CLAUDE_MD overrides for multi-instance setups)
   try {
-    parts.push(readFileSync(join(PROJECT_ROOT, 'CLAUDE.md'), 'utf-8'));
+    const claudeMdPath = BOT_CLAUDE_MD || join(PROJECT_ROOT, 'CLAUDE.md');
+    parts.push(readFileSync(claudeMdPath, 'utf-8'));
   } catch { /* not found or unreadable -- skip */ }
 
   // Inject skill files from .claude/skills/

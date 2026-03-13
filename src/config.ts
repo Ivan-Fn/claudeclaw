@@ -30,7 +30,7 @@ export const BOT_DISPLAY_NAME = env['BOT_DISPLAY_NAME']?.trim() || 'Master Agent
 
 // Paths
 export { PROJECT_ROOT };
-export const STORE_DIR = join(PROJECT_ROOT, 'store');
+export const STORE_DIR = env['STORE_DIR']?.trim() || join(PROJECT_ROOT, 'store');
 export const DB_PATH = join(STORE_DIR, `${BOT_NAME}.db`);
 export const UPLOADS_DIR = join(PROJECT_ROOT, 'workspace', 'uploads');
 export const PID_FILE = join(STORE_DIR, `${BOT_NAME}.pid`);
@@ -83,6 +83,29 @@ export const AGENT_FORWARD_ENV = (env['AGENT_FORWARD_ENV'] ?? '')
 
 // Custom /start message (overrides the default "BOT_DISPLAY_NAME online..." greeting)
 export const BOT_START_MESSAGE = env['BOT_START_MESSAGE']?.trim() || '';
+
+// Custom CLAUDE.md path for bot personality injection.
+// When set, loadBotConfigAppend() reads this instead of PROJECT_ROOT/CLAUDE.md.
+// Used for multi-instance setups where each bot has its own personality file.
+export const BOT_CLAUDE_MD = env['BOT_CLAUDE_MD']?.trim() || '';
+
+// Bot aliases for group chat name detection (comma-separated, supports Cyrillic)
+// Example: BOT_ALIASES=Добби,добби,Dobby
+export const BOT_ALIASES = (env['BOT_ALIASES'] ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Group chat filtering mode
+// - 'all' (default): respond to every message (current behavior)
+// - 'mention-only': only @mentions and direct replies
+// - 'smart': mentions + replies + name/alias detection in text
+// Note: modes other than 'all' require BotFather privacy mode DISABLED
+export const GROUP_CHAT_MODE: 'all' | 'mention-only' | 'smart' = (() => {
+  const val = env['GROUP_CHAT_MODE']?.trim();
+  if (val === 'mention-only' || val === 'smart') return val;
+  return 'all';
+})();
 
 // MCP servers to pass directly to the Claude Agent SDK (JSON string)
 // Format: {"server-name": {"command": "...", "args": [...], "env": {...}}}

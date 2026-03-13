@@ -13,6 +13,8 @@ import {
   IS_DOCKER,
   DASHBOARD_PORT,
   DASHBOARD_TOKEN,
+  GROUP_CHAT_MODE,
+  BOT_ALIASES,
 } from '../config.js';
 import { logger } from '../logger.js';
 import { enqueue, enqueueDebounced, isRateLimited } from '../queue.js';
@@ -349,6 +351,7 @@ export class TelegramChannel implements MessageChannel {
       const lines = [
         `<b>${BOT_DISPLAY_NAME} Status</b>`,
         '',
+        `Chat ID: <code>${ctx.chat.id}</code>`,
         `Session: ${sessionId ? `<code>${sessionId.slice(0, 8)}...</code>` : 'none'}`,
         `Memories: ${memStats.total} (${memStats.semantic} semantic, ${memStats.episodic} episodic)`,
         `Voice STT: ${voice.stt ? 'enabled' : 'disabled'}`,
@@ -636,6 +639,7 @@ export class TelegramChannel implements MessageChannel {
 
     // Voice
     bot.on('message:voice', async (ctx) => {
+      if (shouldSkipGroupMessage(ctx)) return;
       const chatId = ctx.chat.id.toString();
       const cid = this.cid(ctx);
 
@@ -670,6 +674,7 @@ export class TelegramChannel implements MessageChannel {
 
     // Photo
     bot.on('message:photo', async (ctx) => {
+      if (shouldSkipGroupMessage(ctx)) return;
       const chatId = ctx.chat.id.toString();
       const cid = this.cid(ctx);
 
@@ -693,6 +698,7 @@ export class TelegramChannel implements MessageChannel {
 
     // Document
     bot.on('message:document', async (ctx) => {
+      if (shouldSkipGroupMessage(ctx)) return;
       const chatId = ctx.chat.id.toString();
       const cid = this.cid(ctx);
 
@@ -715,10 +721,15 @@ export class TelegramChannel implements MessageChannel {
 
     // Text (catch-all)
     bot.on('message:text', async (ctx) => {
+      if (shouldSkipGroupMessage(ctx)) return;
       const chatId = ctx.chat.id.toString();
       const cid = this.cid(ctx);
       const fwd = buildForwardPrefix(ctx.message.forward_origin as Parameters<typeof buildForwardPrefix>[0]);
-      const text = fwd + ctx.message.text;
+
+      // Strip bot @username and name prefix in group chats
+      const rawText = ctx.message.text;
+      const isGroup = ctx.chat.type !== 'private';
+      const text = fwd + (isGroup ? stripBotCallout(rawText, ctx.me.username) : rawText);
 
       if (isRateLimited(cid)) {
         await ctx.reply('Rate limit exceeded. Please wait a moment.');
@@ -765,6 +776,75 @@ export class TelegramChannel implements MessageChannel {
       }
     }
   }
+}
+
+// ── Group Chat Filtering ────────────────────────────────────────────────
+
+/**
+ * Determine if a group message is directed at the bot.
+ * Checks: @mention in entities, reply to bot, name/alias in text.
+ */
+function isMessageForBot(ctx: Context): boolean {
+  const msg = ctx.message;
+  if (!msg) return false;
+
+  // @mention in entities
+  const botUsername = ctx.me.username?.toLowerCase();
+  if (botUsername && msg.entities) {
+    const text = 'text' in msg ? msg.text ?? '' : '';
+    for (const entity of msg.entities) {
+      if (entity.type === 'mention') {
+        const mention = text.slice(entity.offset, entity.offset + entity.length).toLowerCase();
+        if (mention === `@${botUsername}`) return true;
+      }
+    }
+  }
+
+  // Reply to bot's message
+  if (msg.reply_to_message?.from?.id === ctx.me.id) return true;
+
+  // Name/alias in text (case-insensitive, Unicode-safe)
+  const text = ('text' in msg ? msg.text ?? '' : (msg as { caption?: string }).caption ?? '').toLowerCase();
+  const names = [BOT_DISPLAY_NAME, ...BOT_ALIASES].filter(Boolean);
+  if (names.some(n => text.includes(n.toLowerCase()))) return true;
+
+  return false;
+}
+
+/**
+ * Strip bot @username and name prefix from message text.
+ * "@dobby_bot remind me" -> "remind me"
+ * "Добби, напомни" -> "напомни"
+ */
+function stripBotCallout(text: string, botUsername: string | undefined): string {
+  let result = text;
+
+  // Strip @username anywhere
+  if (botUsername) {
+    result = result.replace(new RegExp(`@${escapeRegExpChars(botUsername)}`, 'gi'), '').trim();
+  }
+
+  // Strip display name / aliases at the start (prefix callout pattern: "Name, ..." or "Name: ...")
+  const names = [BOT_DISPLAY_NAME, ...BOT_ALIASES].filter(Boolean);
+  for (const name of names) {
+    const pattern = new RegExp(`^${escapeRegExpChars(name)}[,:\\s]+`, 'i');
+    result = result.replace(pattern, '');
+  }
+
+  return result.trim();
+}
+
+function escapeRegExpChars(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Check GROUP_CHAT_MODE and return true if the message should be skipped.
+ */
+function shouldSkipGroupMessage(ctx: Context): boolean {
+  if (!ctx.chat || ctx.chat.type === 'private') return false;
+  if (GROUP_CHAT_MODE === 'all') return false;
+  return !isMessageForBot(ctx);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────
