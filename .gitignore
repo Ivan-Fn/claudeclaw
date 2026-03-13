@@ -9,3 +9,9 @@ workspace/
 CLAUDE.md
 .claude/skills/
 skills.json
+.plan.md
+.playwright-mcp/
+claw.code-workspace
+fofanov-ai-*.png
+scripts/google-oauth.py
+skills-catalog/grocery.md

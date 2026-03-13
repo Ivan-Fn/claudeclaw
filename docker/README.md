@@ -1,6 +1,6 @@
 # Running ClaudeClaw in Docker
 
-Run autonomous AI agents in isolated Docker containers. Each agent gets its own Telegram bot, GitHub token, and resource limits while sharing a single Docker image.
+Run autonomous AI agents in isolated Docker containers. Each agent gets its own Telegram bot, GitHub token, and resource limits while sharing a single Docker image from GHCR.
 
 ## When to use Docker mode
 
@@ -11,65 +11,102 @@ For a personal assistant bot (the default use case), running directly on the hos
 ## Architecture
 
 ```
+GHCR (public)
+  ghcr.io/ivan-fn/claudeclaw-agent
+    :v1.0.0                   Stable release (pin bots here)
+    :edge                     Latest main build (testing only)
+    :sha-abc1234              Commit-level builds
+
 Host machine
+  +--> Docker runtime (Colima, Docker Desktop, etc.)
+  |      +--> agent-1 container   @my_first_bot   (pinned to v1.0.0)
+  |      +--> agent-2 container   @my_second_bot  (pinned to v1.0.0)
   |
-  +--> Docker runtime (Docker Desktop, Colima, etc.)
-  |      |
-  |      +--> agent-1 (container)     @my_first_bot
-  |      +--> agent-2 (container)     @my_second_bot
-  |
-  +--> Secrets backend (1Password, SOPS, plain .env, etc.)
+  +--> Config repo (private)
+  |      +--> agents/agent-1/   (CLAUDE.md, settings.json, op-env)
+  |      +--> agents/agent-2/
+  |      +--> docker-compose.agent-1.yml
+  |      +--> start-agent.sh
   |
   +--> Git repos (bind-mounted into containers)
 ```
 
 ## Quick Start
 
-### 1. Build the image
+### 1. Pull the image
 
-From the claudeclaw repo root:
+```bash
+docker pull ghcr.io/ivan-fn/claudeclaw-agent:v1.0.0
+```
+
+Or build locally for development:
 
 ```bash
 npm run build
-docker build -t claudeclaw-agent:latest .
+docker build -t ghcr.io/ivan-fn/claudeclaw-agent:local .
 ```
 
-### 2. Set up agent config
+### 2. Generate agent config
 
 ```bash
-# Copy the example templates
-mkdir -p my-deployment/agents/my-agent
-cp docker/agents/example/CLAUDE.md.example my-deployment/agents/my-agent/CLAUDE.md
-cp docker/agents/example/settings.json.example my-deployment/agents/my-agent/settings.json
-cp docker/agents/example/env.example my-deployment/agents/my-agent/.env
-cp docker/docker-compose.example.yml my-deployment/docker-compose.my-agent.yml
-cp docker/start-agent.example.sh my-deployment/start-agent.sh
-chmod +x my-deployment/start-agent.sh
+# From the claudeclaw repo
+./scripts/new-bot.sh my-agent \
+  --config-dir ~/my-project/docker \
+  --vault my-bots \
+  --copy-launcher
 ```
 
-Edit the copied files:
+This creates all config files from templates. Edit them:
 - **CLAUDE.md** -- agent personality and constraints
-- **settings.json** -- Claude Code tool deny rules (e.g., block `git push --force`)
-- **.env** or **op-env** -- secrets (Telegram token, OAuth token, GitHub PAT)
+- **settings.json** -- Claude Code tool deny rules
+- **op-env** -- 1Password secret references
 - **docker-compose.yml** -- volume mounts for your repos
 
-### 3. Generate an OAuth token
+### 3. Set up secrets
 
-The agent needs a Claude Code OAuth token for headless auth:
+Create 1Password items (or use `--setup-op` flag with `new-bot.sh`):
 
 ```bash
-docker run --rm -it --entrypoint bash claudeclaw-agent:latest
+op item create --vault my-bots --title my-agent-telegram --category login
+op item create --vault my-bots --title my-agent-github-pat --category login
+op item create --vault my-bots --title my-agent-config --category login
+```
+
+Fill in: Telegram token (from BotFather), GitHub PAT, allowed chat IDs.
+
+### 4. Generate an OAuth token
+
+```bash
+docker run --rm -it --entrypoint bash ghcr.io/ivan-fn/claudeclaw-agent:v1.0.0
 # Inside the container:
 claude setup-token
 ```
 
-Copy the generated token into your env file as `CLAUDE_CODE_OAUTH_TOKEN`.
+Store the token in 1Password as `claude-oauth` with field `oauth-token`.
 
-### 4. Launch
+### 5. Launch
 
 ```bash
-cd my-deployment
+cd ~/my-project/docker
 ./start-agent.sh my-agent
+```
+
+## Updating Bots
+
+When a new claudeclaw release is published:
+
+```bash
+# Update all bots in a config repo to a new version
+./scripts/update-bots.sh --tag v1.1.0 --config-dir ~/my-project/docker
+
+# Update specific bots only
+./scripts/update-bots.sh --tag v1.1.0 --config-dir ~/my-project/docker my-agent
+
+# Pin the version in compose files (tag + digest, for git history)
+./scripts/update-bots.sh --tag v1.1.0 --pin --config-dir ~/my-project/docker
+
+# Override image at runtime without changing compose files
+IMAGE_TAG=edge ./start-agent.sh my-agent
 ```
 
 ## Container Filesystem
@@ -82,8 +119,8 @@ cd my-deployment
   CLAUDE.md             Agent personality   <-- bind mount (read-only)
 
 /repos/                 Git repositories    <-- bind mount from host (read-write)
-  repo1/                Your first repo
-  repo2/                Your second repo
+  repo1/
+  repo2/
 
 /home/agent/.claude/    Claude CLI state    <-- Docker volume (persists)
   settings.json         Tool deny rules     <-- bind mount (read-only)
@@ -93,47 +130,6 @@ cd my-deployment
 
 **Persistent volumes** survive `docker compose down`. They only disappear with explicit `docker volume rm`.
 
-## Entrypoint
-
-On startup, `scripts/docker-entrypoint.sh` runs before the bot:
-
-1. Sets `git config` (user.name, user.email) from env vars
-2. Runs `gh auth setup-git` so `git push` uses `GH_TOKEN`
-3. Marks all repos under `/repos/` as `safe.directory`
-4. Starts `node dist/index.js`
-
-## Secrets Management
-
-The example `start-agent.sh` supports three backends:
-
-### 1Password (default)
-
-Store secrets as `op://vault/item/field` references in an `op-env` file. The launcher resolves them at startup via `op run`, writes a temp `.env.resolved`, and deletes it after Docker reads it.
-
-```
-# agents/my-agent/op-env
-TELEGRAM_BOT_TOKEN=op://my-vault/my-agent-telegram/token
-CLAUDE_CODE_OAUTH_TOKEN=op://my-vault/claude-oauth/oauth-token
-```
-
-Requires: `op` CLI + a service account token at `~/.config/op/shared.token`.
-
-### SOPS
-
-Encrypt your env file with `sops encrypt agents/my-agent/.env > secrets/my-agent.enc.env`. The launcher decrypts to a temp file at startup.
-
-### Plain .env
-
-Just fill in `agents/my-agent/.env` directly. Do NOT commit this file.
-
-## Resource Limits
-
-Each container is capped at (configurable in compose file):
-
-- **Memory:** 2GB
-- **CPU:** 1.5 cores
-- **Shared memory:** 256MB
-
 ## Safety Controls
 
 Three layers of protection:
@@ -142,32 +138,31 @@ Three layers of protection:
 2. **settings.json deny rules** -- Claude Code blocks tool patterns at the SDK level
 3. **Docker isolation** -- container can only access explicitly mounted paths
 
-## Rebuilding the Image
+## Templates
 
-When the bot code changes:
+Templates live in `docker/templates/`. The `new-bot.sh` script substitutes placeholders:
 
-```bash
-cd /path/to/claudeclaw
-git pull
-npm install && npm run build
-docker build -t claudeclaw-agent:latest .
+| Placeholder | Description |
+|-------------|-------------|
+| `{{AGENT_NAME}}` | Agent identifier (e.g. `sv0-echo`) |
+| `{{AGENT_DISPLAY_NAME}}` | Human-readable name (e.g. `Echo`) |
+| `{{OP_VAULT}}` | 1Password vault name |
+| `{{PINNED_TAG}}` | Latest stable release tag at generation time |
+
+## Config Repo Structure
+
+Each project that uses ClaudeClaw bots keeps configs in a private repo:
+
 ```
-
-Then restart running agents:
-
-```bash
-docker compose -f docker-compose.my-agent.yml down
-./start-agent.sh my-agent
+my-project-bots/
+  docker/
+    agents/
+      bot-1/          CLAUDE.md, settings.json, op-env
+      bot-2/
+    docker-compose.bot-1.yml
+    docker-compose.bot-2.yml
+    start-agent.sh    (copied from claudeclaw)
 ```
-
-## Adding a New Agent
-
-1. Create agent config directory with CLAUDE.md, settings.json, env file
-2. Create a docker-compose file (copy from example, update volume mounts)
-3. Store secrets in your backend
-4. Run `./start-agent.sh <agent-name>`
-
-See `agents/example/` for templates.
 
 ## Debugging
 
@@ -196,7 +191,8 @@ docker stats my-agent --no-stream
 
 ## Notes
 
-- **Shared repos**: If you're working on a repo on the host while an agent modifies it in Docker, you may see unexpected branches. Agents should always create feature branches, never touch your working branch.
-- **Image rebuild required**: Code changes to claudeclaw require rebuilding the Docker image. Agents don't `git pull` the bot code -- it's baked in.
+- **Image versioning**: Always pin bots to a release tag (e.g. `v1.0.0`). Use `edge` only for testing. Never run production bots on a mutable tag.
+- **Shared repos**: Agents always create feature branches, never touch your working branch.
 - **OAuth token expiry**: Regenerate with `claude setup-token` inside the container when it expires.
-- **macOS + Colima**: virtiofs maps host files as the container user automatically, so file permissions work transparently.
+- **macOS + Colima**: virtiofs maps host files as the container user automatically.
+- **Claude Code CLI**: Always installs `@latest` to stay current with the fast-moving ecosystem. Image tags provide rollback if a CLI update causes issues.
