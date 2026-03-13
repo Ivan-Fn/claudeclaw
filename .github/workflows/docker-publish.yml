@@ -38,7 +38,7 @@ jobs:
       - name: Determine tags
         id: tags
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/claudeclaw-agent
+          IMAGE=ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/claudeclaw-agent
           TAGS=""
           if [[ "${{ github.event_name }}" == "release" ]]; then
             TAGS="${IMAGE}:${{ github.event.release.tag_name }}"
