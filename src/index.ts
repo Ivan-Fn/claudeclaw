@@ -16,6 +16,7 @@ import { TelegramChannel } from './channels/telegram.js';
 import { SlackChannel } from './channels/slack.js';
 import { channelFromComposite, rawChatId } from './channels/types.js';
 import type { MessageChannel } from './channels/types.js';
+import { BUILD_STRING } from './version.js';
 
 // ── PID Lock ───────────────────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ const STARTUP_HEALTHY_DELAY_MS = 15_000;
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  logger.info({ pid: process.pid }, `${BOT_DISPLAY_NAME} starting`);
+  logger.info({ pid: process.pid, build: BUILD_STRING }, `${BOT_DISPLAY_NAME} starting (${BUILD_STRING})`);
 
   let startupHealthy = false;
   let startupHealthTimer: ReturnType<typeof setTimeout> | undefined;

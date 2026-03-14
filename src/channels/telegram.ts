@@ -615,7 +615,15 @@ export class TelegramChannel implements MessageChannel {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
         const summary = output.trim().split('\n').slice(-5).join('\n');
-        await ctx.reply(`Build done:\n${summary}\n\nRestarting...`);
+        // Read generated build info
+        let buildStr = '';
+        try {
+          const { readFileSync } = await import('node:fs');
+          const { join } = await import('node:path');
+          const info = JSON.parse(readFileSync(join(PROJECT_ROOT, 'dist', 'build-info.json'), 'utf-8'));
+          buildStr = ` v${info.version}+${info.gitHash}`;
+        } catch { /* ignore */ }
+        await ctx.reply(`Build done:${buildStr}\n${summary}\n\nRestarting...`);
         // Exit non-zero so launchd KeepAlive (SuccessfulExit=false) restarts us.
         setTimeout(() => process.exit(1), 500);
       } catch (err) {
@@ -637,9 +645,9 @@ export class TelegramChannel implements MessageChannel {
   private setupMessageHandlers(): void {
     const bot = this.bot;
 
-    // Voice
+    // Voice -- always process in groups (no shouldSkipGroupMessage check).
+    // Assumption: voice messages in a group chat are intended for the bot.
     bot.on('message:voice', async (ctx) => {
-      if (shouldSkipGroupMessage(ctx)) return;
       const chatId = ctx.chat.id.toString();
       const cid = this.cid(ctx);
 

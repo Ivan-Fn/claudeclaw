@@ -15,3 +15,5 @@ claw.code-workspace
 fofanov-ai-*.png
 scripts/google-oauth.py
 skills-catalog/grocery.md
+src/version.ts
+dist/build-info.json

@@ -1,8 +1,9 @@
 {
   "name": "claudeclaw",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "prebuild": "bash scripts/generate-version.sh",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
