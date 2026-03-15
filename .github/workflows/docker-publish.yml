@@ -54,6 +54,7 @@ jobs:
       - name: Validate and build
         run: |
           npm ci
+          bash scripts/generate-version.sh
           npm run typecheck
           npm run test
           npm run build
