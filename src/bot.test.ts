@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { homedir } from 'node:os';
 import { formatForTelegram, splitMessage, extractFileMarkers } from './bot.js';
+
+const HOME = homedir();
 
 describe('formatForTelegram', () => {
   it('escapes HTML entities', () => {
@@ -125,29 +128,29 @@ describe('splitMessage', () => {
 
 describe('extractFileMarkers', () => {
   it('extracts SEND_FILE markers', () => {
-    const input = 'Here is the report\n[SEND_FILE:/Users/mini1/report.pdf]\nDone.';
+    const input = `Here is the report\n[SEND_FILE:${HOME}/report.pdf]\nDone.`;
     const result = extractFileMarkers(input);
     expect(result.files).toHaveLength(1);
     expect(result.files[0]!.type).toBe('document');
-    expect(result.files[0]!.filePath).toBe('/Users/mini1/report.pdf');
+    expect(result.files[0]!.filePath).toBe(`${HOME}/report.pdf`);
     expect(result.text).toBe('Here is the report\n\nDone.');
   });
 
   it('extracts SEND_PHOTO markers', () => {
-    const input = '[SEND_PHOTO:/Users/mini1/chart.png]';
+    const input = `[SEND_PHOTO:${HOME}/chart.png]`;
     const result = extractFileMarkers(input);
     expect(result.files).toHaveLength(1);
     expect(result.files[0]!.type).toBe('photo');
   });
 
   it('extracts captions', () => {
-    const input = '[SEND_FILE:/Users/mini1/data.csv|Quarterly data]';
+    const input = `[SEND_FILE:${HOME}/data.csv|Quarterly data]`;
     const result = extractFileMarkers(input);
     expect(result.files[0]!.caption).toBe('Quarterly data');
   });
 
   it('blocks paths with ../', () => {
-    const input = '[SEND_FILE:/Users/mini1/../etc/passwd]';
+    const input = `[SEND_FILE:${HOME}/../etc/passwd]`;
     const result = extractFileMarkers(input);
     expect(result.files).toHaveLength(0);
   });
@@ -159,13 +162,13 @@ describe('extractFileMarkers', () => {
   });
 
   it('blocks sensitive file patterns', () => {
-    const input = '[SEND_FILE:/Users/mini1/.env]';
+    const input = `[SEND_FILE:${HOME}/.env]`;
     const result = extractFileMarkers(input);
     expect(result.files).toHaveLength(0);
   });
 
   it('handles multiple markers', () => {
-    const input = '[SEND_FILE:/Users/mini1/a.pdf]\n[SEND_PHOTO:/Users/mini1/b.png]';
+    const input = `[SEND_FILE:${HOME}/a.pdf]\n[SEND_PHOTO:${HOME}/b.png]`;
     const result = extractFileMarkers(input);
     expect(result.files).toHaveLength(2);
   });
