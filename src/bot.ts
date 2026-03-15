@@ -240,6 +240,7 @@ export async function processMessage(
 
     const caps = voiceCapabilities();
     const shouldSpeakBack = caps.tts && (respondWithVoice || voiceEnabledChats.has(cid)) && !result.error;
+    logger.debug({ respondWithVoice, voiceMode: voiceEnabledChats.has(cid), ttsCap: caps.tts, shouldSpeakBack }, 'Voice reply decision');
 
     if (shouldSpeakBack && channel.sendVoice) {
       try {

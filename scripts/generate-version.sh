@@ -16,6 +16,7 @@ export const BUILD_STRING = \`v\${VERSION}+\${GIT_HASH}\`;
 EOF
 
 # Also write a plain JSON for easy reading by /rebuild before restart
+mkdir -p "$ROOT/dist"
 cat > "$ROOT/dist/build-info.json" << EOF
 {"version":"${VERSION}","gitHash":"${GIT_HASH}","buildTime":"${BUILD_TIME}"}
 EOF
