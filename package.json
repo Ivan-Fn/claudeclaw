@@ -12,7 +12,8 @@
     "skills": "tsx scripts/skills.ts",
     "status": "tsx scripts/status.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate": "npm run typecheck && npm run test && npm run build"
   },
   "engines": {
     "node": ">=24"
