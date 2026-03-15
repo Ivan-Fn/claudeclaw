@@ -55,7 +55,9 @@ import {
 
 // ── Per-chat voice mode toggle ─────────────────────────────────────────
 
-const VOICE_REPLY_PATTERN = /\b(respond (with|via|in) (voice|audio)|send (me )?(a )?(voice|audio)( note| back| message)?|(voice|audio) reply|reply (with|via) (voice|audio))\b|ответь (голосом|войсом|аудио)|голосовое|голосом ответь|(пришли|отправь|скажи) (голосовое|аудио|голосом)/i;
+const VOICE_REPLY_PATTERN =
+  // English + Russian patterns for requesting voice response
+  /\b(respond (with|via|in) (voice|audio)|send (me )?(a )?(voice|audio)( note| back| message)?|(voice|audio) (reply|only|back|mode|response|answer)|reply (with|via) (voice|audio)|(answer|reply|respond|return|say it) (with |in |via )?(voice|audio)|voice (it )?out|speak (to me|back|up)|talk (to me|back)|audio (only|response|reply|answer)|only (voice|audio)|must (have |be )?(voice|audio))\b|голосом|войсом|аудио.{0,10}ответ|ответ.{0,10}(голос|аудио)|ответь.{0,20}голос|голос.{0,10}ответь|(пришли|отправь|скажи|дай).{0,10}(голосов|аудио)|(только|лишь).{0,5}голос/i;
 
 // ── Telegram Channel Adapter ──────────────────────────────────────────
 
@@ -744,7 +746,8 @@ export class TelegramChannel implements MessageChannel {
         return;
       }
 
-      enqueueDebounced(cid, text, (merged) => processMessage(this, cid, chatId, merged));
+      const wantsVoiceBack = VOICE_REPLY_PATTERN.test(text);
+      enqueueDebounced(cid, text, (merged) => processMessage(this, cid, chatId, merged, wantsVoiceBack));
     });
   }
 
