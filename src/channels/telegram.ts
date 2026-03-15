@@ -55,7 +55,7 @@ import {
 
 // ── Per-chat voice mode toggle ─────────────────────────────────────────
 
-const VOICE_REPLY_PATTERN = /\b(respond (with|via|in) voice|send (me )?(a )?voice( note| back)?|voice reply|reply (with|via) voice)\b/i;
+const VOICE_REPLY_PATTERN = /\b(respond (with|via|in) (voice|audio)|send (me )?(a )?(voice|audio)( note| back| message)?|(voice|audio) reply|reply (with|via) (voice|audio))\b|ответь (голосом|войсом|аудио)|голосовое|голосом ответь|(пришли|отправь|скажи) (голосовое|аудио|голосом)/i;
 
 // ── Telegram Channel Adapter ──────────────────────────────────────────
 
